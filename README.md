@@ -32,7 +32,7 @@ Therefore, we need models that can "remember" weights (the knowledge of the mode
 
 Attention is a technique that allows the model to understand how important each word is to the current context.
 
-# Transformer ![](https://www.emojis.com/emoji/transformer-7q6OusKA0b)
+# Transformer 
 
 ### Encoder
 
