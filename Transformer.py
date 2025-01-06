@@ -208,7 +208,9 @@ class Transformer(nn.Module):
     def decode(self, memory, src_mask, tgt, tgt_mask):
         return self.decoder(self.tgt_embed(tgt),src_mask, tgt_mask)
     
-    def generate(self, x):
-        return self.project(x)
+    
+    
+    # def generate(self, x):
+    #     return self.project(x)
 
     
