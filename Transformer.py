@@ -197,7 +197,7 @@ class Transformer(nn.Module):
         self.decoder = decoder
         self.src_embed = src_embed
         self.tgt_embed = tgt_embed
-        self.project = output
+        self.proj = output
 
     def forward(self, src, tgt, src_mask, tgt_mask):
         return self.decode(self.encode(src, src_mask), src_mask, tgt, tgt_mask)
@@ -209,8 +209,7 @@ class Transformer(nn.Module):
         return self.decoder(self.tgt_embed(tgt),src_mask, tgt_mask)
     
     
-    
-    # def generate(self, x):
-    #     return self.project(x)
+    def project(self, x):
+        return self.proj(x)
 
     
