@@ -32,7 +32,10 @@ Therefore, we need models that can "remember" weights (the knowledge of the mode
 
 Attention is a technique that allows the model to understand how important each word is to the current context.
 
-# Transformer 
+
+# Transformer
+
+ - [Transformer](https://miro.medium.com/v2/resize:fit:1400/1*OB7gsRGz4Gm4qcKglpLSqQ.png) 
 
 ### Encoder
 
@@ -48,7 +51,7 @@ The encoder consists of several layers, each with the following components:
      - `x` is the input token.
 
 2. **Positional Encoding**
-   ![positional encoding](https://qinzishi.tech/2024/01/06/transformer-from-scratch-1/transformer-from-scratch-1-02-what-is-positional-encoding.png)
+   ![positional encoding](https://miro.medium.com/v2/resize:fit:1400/1*OB7gsRGz4Gm4qcKglpLSqQ.png)
    - Adds information about the position of each token in the sequence.
    ```
    PE_{(pos, 2i)} = sin(pos / 10000^(2i/d_model))
