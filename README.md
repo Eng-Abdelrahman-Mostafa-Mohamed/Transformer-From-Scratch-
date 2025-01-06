@@ -35,7 +35,7 @@ Attention is a technique that allows the model to understand how important each 
 
 # Transformer
 
- - [](https://miro.medium.com/v2/resize:fit:989/0*Q7l2OWtPWiIZzT6T.png)
+[](https://miro.medium.com/v2/resize:fit:989/0*Q7l2OWtPWiIZzT6T.png)
 
 ### Encoder
 
