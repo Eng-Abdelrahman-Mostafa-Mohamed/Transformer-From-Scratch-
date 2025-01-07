@@ -127,8 +127,30 @@ class CreateTrainingDataForTransformer(Dataset):
                                    
                             torch.tensor(self.eos_token , dtype=torch.int64)
 
-        )                                   
-        return None
+        )
+        
+        
+        # to check that padding operation applied correctly
+        assert encoder_input.size(0) == self.seq_len
+        assert decoder_input.size(0) == self.seq_len
+        assert lable.size(0) == self.seq_len        
+                                   
+        return {
+            'encoder_input': encoder_input, # the dimention now is seq length
+            'decoder_input': decoder_input,
+            'lable': lable,
+            #but we want the padded tokens doesn't affect the attention mechanism so we need to create a mask for the encoder and decoder
+                                                                                #first for batch_size  , second for seq_length and third for the seq_length (we want to reshape mask to work with self attention scores to apply multiblications on  it with the scores) on it  
+            'encoder_mask': (encoder_input != self.pad_token).unsqueeze(0).unsqueeze(0).int(),
+            'decoder_mask': (decoder_input != self.pad_token).type(torch.int64).unsqueeze(0).unsqueeze(0).int() & causal_mask(decoder_input.size(0)),
+            'src_txt': src_txt_of_idx,
+            'tgt_txt': tgt_txt_of_idx
+        }
+        
+        
+def causal_mask(tgt_seq_len):
+    mask = torch.triu(torch.ones(tgt_seq_len, tgt_seq_len))
+    return mask == 0
 
 
 def process_data(data):
