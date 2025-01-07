@@ -150,6 +150,8 @@ class Decoder(nn.Module):
             x = layer(x, encoder_output, src_mask, tgt_mask)
         return self.norm(x)
 
+
+
 class Transformer(nn.Module):
     def __init__(self, encoder: Encoder, decoder: Decoder, src_embed: InputEmbedding, tgt_embed: InputEmbedding, src_pos: PositionalEncoding, tgt_pos: PositionalEncoding, projection_layer: ProjectionLayer) -> None:
         super().__init__()
@@ -174,13 +176,13 @@ class Transformer(nn.Module):
     def project(self, x):
         return self.projection_layer(x)
 
-    def forward(self, src, tgt, src_mask, tgt_mask):
-        # Encoding the source input
-        encoder_output = self.encode(src, src_mask)
-        # Decoding the target input using the encoder output
-        decoder_output = self.decode(encoder_output, src_mask, tgt, tgt_mask)
-        # Projecting the decoder output to the vocabulary space
-        return self.project(decoder_output)
+    # def forward(self, src, tgt, src_mask, tgt_mask):
+    #     encoder_output = self.encode(src, src_mask)
+    #     decoder_output = self.decode(encoder_output, src_mask, tgt, tgt_mask)
+    #     return self.project(decoder_output)
+
+
+
 
 
 def build_transformer(src_vocab_size: int, tgt_vocab_size: int, src_seq_len: int, tgt_seq_len: int, d_model: int=512, N: int=6, h: int=8, dropout: float=0.1, d_ff: int=2048) -> Transformer:
@@ -190,8 +192,9 @@ def build_transformer(src_vocab_size: int, tgt_vocab_size: int, src_seq_len: int
     src_pos = PositionalEncoding(d_model, src_seq_len, dropout)
     tgt_pos = PositionalEncoding(d_model, tgt_seq_len, dropout)
     
-    encoder_blocks = [EncoderBlock(MultiHeadAttention(d_model, h, dropout), FeedForwardNN(d_model, d_ff, dropout), dropout) for _ in range(N)]
-    decoder_blocks = [DecoderBlock(MultiHeadAttention(d_model, h, dropout), MultiHeadAttention(d_model, h, dropout), FeedForwardNN(d_model, d_ff, dropout), dropout) for _ in range(N)]
+    encoder_blocks = [EncoderBlock(MultiHeadAttention(d_model, h, dropout), FeedForwardNN(d_model, d_ff, dropout), dropout) for _ in range(N)] # we have N number of encoder blocks that we will pas as nn.moduleList blocks to encoder to make big encoder block 
+    decoder_blocks = [DecoderBlock(MultiHeadAttention(d_model, h, dropout), MultiHeadAttention(d_model, h, dropout), FeedForwardNN(d_model, d_ff, dropout), dropout) for _ in range(N)] # same as encoder blocks we have N number of decoder blocks that we will pas as nn.moduleList blocks to decoder to make big decoder block
+    
     
     encoder = Encoder(nn.ModuleList(encoder_blocks))
     decoder = Decoder(nn.ModuleList(decoder_blocks))
@@ -202,6 +205,6 @@ def build_transformer(src_vocab_size: int, tgt_vocab_size: int, src_seq_len: int
     
     for p in transformer.parameters():
         if p.dim() > 1:
-            nn.init.xavier_uniform_(p)
+            nn.init.xavier_uniform_(p) # as we know that each model start with Random initialized weights so to avoid time consuming training we are using xavier_uniform_ initializer to make the initialization 
     
     return transformer
