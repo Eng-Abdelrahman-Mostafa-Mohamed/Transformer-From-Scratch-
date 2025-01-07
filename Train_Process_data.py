@@ -15,11 +15,17 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 config = {
     'tokenizer_path': '.',
-    'model_path': '.',
+    'model_path': 'traiend_model/best_model_weights.pth',
     'data_path': './ara.csv',
     'src_lang': 'ar',
     'tgt_lang': 'en',
-    'seq_len': ''
+    'batch_size': 32,
+    'seq_len': 6670,
+    'd_model': 512,
+    'N' : 6,
+    'h' : 8,
+    'dropout' : 0.1,
+    'd_ff' : 2048,
 }
 
 
@@ -44,21 +50,29 @@ def build_tokenizer(config, data, lang):
 def get_dataset_from_hugging_face(config):
     train_data = load_dataset('Helsinki-NLP/opus-100',f"{config['src_lang']}-{config['tgt_lang']}",split='train')
     test_data = load_dataset('Helsinki-NLP/opus-100',f"{config['src_lang']}-{config['tgt_lang']}",split='test')
+    print(f"{train_data[1]['translation'][config['src_lang']]}")
     validation_data = load_dataset('Helsinki-NLP/opus-100',f"{config['src_lang']}-{config['tgt_lang']}",split='validation')
     
     train_src_tokenizer = build_tokenizer(config, train_data, config['src_lang'])
     train_tgt_tokenizer = build_tokenizer(config, train_data, config['tgt_lang'])
     
-    ready_train_data = CreateTrainingDataForTransformer(train_data, train_src_tokenizer, train_tgt_tokenizer,config['src_lang'],config['tgt_lang'] ,config['seq_len'])
-    ready_test_data = CreateTrainingDataForTransformer(config, test_data, train_src_tokenizer, train_tgt_tokenizer, config['seq_len'])
     
+    ready_train_data = CreateTrainingDataForTransformer(train_data, train_src_tokenizer, train_tgt_tokenizer,config['src_lang'],config['tgt_lang'] ,config['seq_len'])
+    ready_val_data = CreateTrainingDataForTransformer(validation_data, train_src_tokenizer, train_tgt_tokenizer,config['src_lang'],config['tgt_lang'] ,config['seq_len'])
+    
+    
+    max_src_seq_len = 0
+    max_tgt_seq_len = 0
     for item in train_data:
         max_src_seq_len=max(max_src_seq_len,len(train_src_tokenizer.encode(item['translation'][config['src_lang']]).ids))
         max_tgt_seq_len=max(max_tgt_seq_len,len(train_src_tokenizer.encode(item['translation'][config['src_lang']]).ids))
         
     print( f"max_src_seq_len {max_src_seq_len} max_tgt_seq_len {max_tgt_seq_len}")
     
-    return train_data, test_data, validation_data
+    train_data_loader = DataLoader(ready_train_data, batch_size=config['batch_size'], shuffle=True)
+    val_data_loader = DataLoader(ready_val_data, batch_size=1, shuffle=True)
+    
+    return train_data_loader, val_data_loader, train_src_tokenizer, train_tgt_tokenizer
 
 class CreateTrainingDataForTransformer(Dataset):
     def __init__(self,data , tokenizer_src, tokenizer_tgt,src_language,target_language,seq_len):
@@ -75,9 +89,6 @@ class CreateTrainingDataForTransformer(Dataset):
         self.sos_token = self.src_tokenizer.token_to_id("[<start>]")
         self.eos_token = self.src_tokenizer.token_to_id("[<end>]")
         self.pad_token = self.src_tokenizer.token_to_id("[<pad>]")
-        
-        self.src_text = data['translation'][self.src_language]
-        self.tgt_text = data['translation'][self.target_language]
         
         self.src_tokenizer = build_tokenizer(config, data, config['src_lang'])
         self.tgt_tokenizer = build_tokenizer(config, data, config['tgt_lang'])
@@ -101,8 +112,8 @@ class CreateTrainingDataForTransformer(Dataset):
         
         #encoder input i want to make it be like this <sos_token> <src_tokens_input_enc>  <pad_tokens>=<pad_tokens> redundant N=src_to_enc_num_padding_needed
         
-        
-        """ Hint Important note : so in training we train on current input tokens to encoder "src lang"
+        # انا اسمي محمد
+        """ Hint Important note : in training we train on current input tokens to encoder "src lang"
 
             and internaly we train on prev seq on sec lang using encoder output and previous tokens of decoder input (tgt language ) {THE KEY AND VALUE INPUT TO CROSS ATTENTION BLOCK IN DECODER } 
             
@@ -118,7 +129,7 @@ class CreateTrainingDataForTransformer(Dataset):
                                    
                                    
 
-                                  )
+                                  ).to(device)
         
         # the input of decoder is using for training the model to predict the target token in training time  itnwill be 
         decoder_input = torch.cat( 
@@ -129,7 +140,7 @@ class CreateTrainingDataForTransformer(Dataset):
                             torch.tensor([self.pad_token]*tgt_dec_num_padding_needed , dtype=torch.int64),
                             
 
-                            )
+                            ).to(device)
         
         lable = torch.cat(
                             torch.tensor(self.sos_token), 
@@ -140,7 +151,7 @@ class CreateTrainingDataForTransformer(Dataset):
                                    
                             torch.tensor(self.eos_token , dtype=torch.int64)
 
-        )
+        ).to(device)
         
         
         # to check that padding operation applied correctly
@@ -177,55 +188,105 @@ def process_data(data):
     return data
 
 
-# def get_max_seq_len(data):
-#     max_seq_len = 0
-#     for i in range(len(data)):
-#         src_text = data[config['src_lang']][i]
-#         tgt_text = data[config['tgt_lang']][i]
-#         src_tokenized = len(src_text.split())
-#         tgt_tokenized = len(tgt_text.split())
-#         if src_tokenized > max_seq_len:
-#             max_seq_len = src_tokenized
-#         if tgt_tokenized > max_seq_len:
-#             max_seq_len = tgt_tokenized
-#     return max_seq_len
+
+def get_model(config, src_vocab_size, tgt_vocab_size):
 
 
-# def train_transformer(config, data):
-#     data = process_data(data)
-#     training_data = CreateTrainingDataForTransformer(config, data)
+    transformer = build_transformer(src_vocab_size, tgt_vocab_size, config['seq_len'], config['seq_len'], config['d_model'], config['N'], config['h'], config['dropout'], config['d_ff'])
+    transformer = transformer.to(device)
+    return transformer
+
+
+def train_transformer():
+    train_data, val_data, src_tokenizer, tgt_tokenizer = get_dataset_from_hugging_face(config)
+    src_vocab_size = len(src_tokenizer.get_vocab())
+    tgt_vocab_size = len(tgt_tokenizer.get_vocab())
+    model = get_model(config, src_vocab_size, tgt_vocab_size).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    criterion = torch.nn.CrossEntropyLoss()
+    for epoch in range(10):
+        model.train()
+        for batch in train_data:
+            encoder_input = batch['encoder_input']
+            decoder_input = batch['decoder_input']
+            lable = batch['lable']
+            encoder_mask = batch['encoder_mask']
+            decoder_mask = batch['decoder_mask']
+            optimizer.zero_grad()
+            output = model(encoder_input, decoder_input, encoder_mask, decoder_mask)
+            loss = criterion(output, lable)
+            loss.backward()
+            optimizer.step()
+        avg_train_loss = total_loss / len(train_data)
+        model.eval()
+        total_loss = 0
+        for batch in val_data:
+            encoder_input = batch['encoder_input']
+            decoder_input = batch['decoder_input']
+            lable = batch['lable']
+            encoder_mask = batch['encoder_mask']
+            decoder_mask = batch['decoder_mask']
+            output = model(encoder_input, decoder_input, encoder_mask, decoder_mask)
+            loss = criterion(output, lable)
+            total_loss += loss.item()
+        avg_val_loss = total_loss / len
+        print(f"Epoch: {epoch} Loss: {total_loss/len(val_data)}")
+        if(avg_val_loss<avg_train_loss):
+            torch.save(model.state_dict(), config['model_path'])
+    return model
+
+
+import torch
+
+def load_model(config, src_vocab_size, tgt_vocab_size, model_path):
+    model = get_model(config, src_vocab_size, tgt_vocab_size)
+    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    model.eval()
+    return model
+
+def translate_sentence(model, sentence, src_tokenizer, tgt_tokenizer, max_seq_len):
+    model.eval()
     
-#     training_data_loader = DataLoader(training_data, batch_size=32, shuffle=True)
+    # Tokenize the input sentence
+    tokens = src_tokenizer.encode(sentence).ids
+    tokens = [src_tokenizer.token_to_id("[<start>]")] + tokens + [src_tokenizer.token_to_id("[<end>]")]
+    tokens += [src_tokenizer.token_to_id("[<pad>]")] * (max_seq_len - len(tokens))
+    tokens = torch.tensor(tokens).unsqueeze(0)
+    
+    # Create the input mask
+    src_mask = (tokens != src_tokenizer.token_to_id("[<pad>]")).unsqueeze(1).unsqueeze(2).int()
+    
+    # Generate predictions
+    output = model.generate(tokens, max_length=max_seq_len, src_mask=src_mask)
+    
+    # Decode the output
+    output_tokens = output.squeeze().tolist()
+    translated_sentence = tgt_tokenizer.decode(output_tokens, skip_special_tokens=True)
+    
+    return translated_sentence
 
-#     src_vocab_size = len(training_data.src_tokenizer.get_vocab())
-#     tgt_vocab_size = len(training_data.tgt_tokenizer.get_vocab())
 
-#     model = build_transformer(
-#         src_seq_len=get_max_seq_len(data[config['src_lang']]),
-#         tgt_seq_len=get_max_seq_len(data[config['tgt_lang']]),
-#         src_vocab_size=src_vocab_size, tgt_vocab_size=tgt_vocab_size,
-#         d_model=512, h=8, N=6, dropout=0.1, d_ff=2048
-#     )
-#     model.train()
-#     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-#     criterion = torch.nn.CrossEntropyLoss(ignore_index=training_data.tgt_tokenizer.token_to_id("<pad>"))
+    
 
-#     for epoch in range(10):
-#         for src_tokenized, tgt_tokenized in training_data_loader:
-#             optimizer.zero_grad()
-#             tgt_input = tgt_tokenized[:, :-1]
-#             tgt_output = tgt_tokenized[:, 1:]
-#             output = model(src_tokenized, tgt_input)
-#             loss = criterion(output.view(-1, output.size(-1)), tgt_output.view(-1))
-#             loss.backward()
-#             optimizer.step()
-#             print(f'Epoch: {epoch}, Loss: {loss.item()}')
+
+
+
 
 
 if __name__ == '__main__':
-    train_data , test_data, validation_data = get_dataset_from_hugging_face(config)
-    print(len(train_data), len(test_data), len(validation_data))
-# print(f"the train data ex_check -- Arabic-- {arabic_reshaper.reshape(train_data[1]['translation']['ar'])} -- English-- {train_data[1]['en'][0]}")
-# print(f"the validation data ex_check -- Arabic-- {arabic_reshaper.reshape(validation_data[1]['translation']['ar'])} -- English-- {validation_data[1]['translation']['en']}")
-# print(f"the test data ex_check -- Arabic-- {arabic_reshaper.reshape(test_data[1]['ar'][0])} -- English-- {test_data[1]['translation']['en'][0]}")
-    get_dataset_from_hugging_face(config)
+    
+    
+    model = train_transformer()
+    
+    
+    
+    src_tokenizer = build_tokenizer(config, data=None, lang=config['src_lang'])
+    tgt_tokenizer = build_tokenizer(config, data=None, lang=config['tgt_lang'])
+
+    # Load model
+    model = load_model(config, len(src_tokenizer.get_vocab()), len(tgt_tokenizer.get_vocab()), config['model_path'])
+
+    # Translate a sentence
+    sentence = "أهلاً بك في عالم الذكاء الاصطناعي"
+    translated_sentence = translate_sentence(model, sentence, src_tokenizer, tgt_tokenizer, config['seq_len'])
+    print(translated_sentence)
