@@ -18,7 +18,8 @@ config = {
     'model_path': '.',
     'data_path': './ara.csv',
     'src_lang': 'ar',
-    'tgt_lang': 'en'
+    'tgt_lang': 'en',
+    'seq_len': ''
 }
 
 
@@ -48,23 +49,35 @@ def get_dataset_from_hugging_face(config):
     train_src_tokenizer = build_tokenizer(config, train_data, config['src_lang'])
     train_tgt_tokenizer = build_tokenizer(config, train_data, config['tgt_lang'])
     
+    ready_train_data = CreateTrainingDataForTransformer(train_data, train_src_tokenizer, train_tgt_tokenizer,config['src_lang'],config['tgt_lang'] ,config['seq_len'])
+    ready_test_data = CreateTrainingDataForTransformer(config, test_data, train_src_tokenizer, train_tgt_tokenizer, config['seq_len'])
+    
+    for item in train_data:
+        max_src_seq_len=max(max_src_seq_len,len(train_src_tokenizer.encode(item['translation'][config['src_lang']]).ids))
+        max_tgt_seq_len=max(max_tgt_seq_len,len(train_src_tokenizer.encode(item['translation'][config['src_lang']]).ids))
+        
+    print( f"max_src_seq_len {max_src_seq_len} max_tgt_seq_len {max_tgt_seq_len}")
     
     return train_data, test_data, validation_data
 
 class CreateTrainingDataForTransformer(Dataset):
-    def __init__(self, config, data , tokenizer_src, tokenizer_tgt,seq_len):
+    def __init__(self,data , tokenizer_src, tokenizer_tgt,src_language,target_language,seq_len):
         self.config = config
         self.data = data
         self.seq_len = seq_len
         self.src_tokenizer = tokenizer_src
         self.tgt_tokenizer = tokenizer_tgt
         
+        
+        self.src_language = src_language
+        self.target_language = target_language
+        
         self.sos_token = self.src_tokenizer.token_to_id("[<start>]")
         self.eos_token = self.src_tokenizer.token_to_id("[<end>]")
         self.pad_token = self.src_tokenizer.token_to_id("[<pad>]")
         
-        self.src_text = data['translation'][config['src_lang']]
-        self.tgt_text = data['translation'][config['tgt_lang']]
+        self.src_text = data['translation'][self.src_language]
+        self.tgt_text = data['translation'][self.target_language]
         
         self.src_tokenizer = build_tokenizer(config, data, config['src_lang'])
         self.tgt_tokenizer = build_tokenizer(config, data, config['tgt_lang'])
@@ -164,53 +177,55 @@ def process_data(data):
     return data
 
 
-def get_max_seq_len(data):
-    max_seq_len = 0
-    for i in range(len(data)):
-        src_text = data[config['src_lang']][i]
-        tgt_text = data[config['tgt_lang']][i]
-        src_tokenized = len(src_text.split())
-        tgt_tokenized = len(tgt_text.split())
-        if src_tokenized > max_seq_len:
-            max_seq_len = src_tokenized
-        if tgt_tokenized > max_seq_len:
-            max_seq_len = tgt_tokenized
-    return max_seq_len
+# def get_max_seq_len(data):
+#     max_seq_len = 0
+#     for i in range(len(data)):
+#         src_text = data[config['src_lang']][i]
+#         tgt_text = data[config['tgt_lang']][i]
+#         src_tokenized = len(src_text.split())
+#         tgt_tokenized = len(tgt_text.split())
+#         if src_tokenized > max_seq_len:
+#             max_seq_len = src_tokenized
+#         if tgt_tokenized > max_seq_len:
+#             max_seq_len = tgt_tokenized
+#     return max_seq_len
 
 
-def train_transformer(config, data):
-    data = process_data(data)
-    training_data = CreateTrainingDataForTransformer(config, data)
-    training_data_loader = DataLoader(training_data, batch_size=32, shuffle=True)
+# def train_transformer(config, data):
+#     data = process_data(data)
+#     training_data = CreateTrainingDataForTransformer(config, data)
+    
+#     training_data_loader = DataLoader(training_data, batch_size=32, shuffle=True)
 
-    src_vocab_size = len(training_data.src_tokenizer.get_vocab())
-    tgt_vocab_size = len(training_data.tgt_tokenizer.get_vocab())
+#     src_vocab_size = len(training_data.src_tokenizer.get_vocab())
+#     tgt_vocab_size = len(training_data.tgt_tokenizer.get_vocab())
 
-    model = build_transformer(
-        src_seq_len=get_max_seq_len(data[config['src_lang']]),
-        tgt_seq_len=get_max_seq_len(data[config['tgt_lang']]),
-        src_vocab_size=src_vocab_size, tgt_vocab_size=tgt_vocab_size,
-        d_model=512, h=8, N=6, dropout=0.1, d_ff=2048
-    )
-    model.train()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-    criterion = torch.nn.CrossEntropyLoss(ignore_index=training_data.tgt_tokenizer.token_to_id("<pad>"))
+#     model = build_transformer(
+#         src_seq_len=get_max_seq_len(data[config['src_lang']]),
+#         tgt_seq_len=get_max_seq_len(data[config['tgt_lang']]),
+#         src_vocab_size=src_vocab_size, tgt_vocab_size=tgt_vocab_size,
+#         d_model=512, h=8, N=6, dropout=0.1, d_ff=2048
+#     )
+#     model.train()
+#     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+#     criterion = torch.nn.CrossEntropyLoss(ignore_index=training_data.tgt_tokenizer.token_to_id("<pad>"))
 
-    for epoch in range(10):
-        for src_tokenized, tgt_tokenized in training_data_loader:
-            optimizer.zero_grad()
-            tgt_input = tgt_tokenized[:, :-1]
-            tgt_output = tgt_tokenized[:, 1:]
-            output = model(src_tokenized, tgt_input)
-            loss = criterion(output.view(-1, output.size(-1)), tgt_output.view(-1))
-            loss.backward()
-            optimizer.step()
-            print(f'Epoch: {epoch}, Loss: {loss.item()}')
+#     for epoch in range(10):
+#         for src_tokenized, tgt_tokenized in training_data_loader:
+#             optimizer.zero_grad()
+#             tgt_input = tgt_tokenized[:, :-1]
+#             tgt_output = tgt_tokenized[:, 1:]
+#             output = model(src_tokenized, tgt_input)
+#             loss = criterion(output.view(-1, output.size(-1)), tgt_output.view(-1))
+#             loss.backward()
+#             optimizer.step()
+#             print(f'Epoch: {epoch}, Loss: {loss.item()}')
 
 
 if __name__ == '__main__':
     train_data , test_data, validation_data = get_dataset_from_hugging_face(config)
     print(len(train_data), len(test_data), len(validation_data))
-print(f"the train data ex_check -- Arabic-- {arabic_reshaper.reshape(train_data[:5]['translation']['ar'][0])} -- English-- {train_data[:5]['en'][0]}")
-print(f"the validation data ex_check -- Arabic-- {arabic_reshaper.reshape(validation_data[:5]['ar'][0])} -- English-- {validation_data[:5]['en'][0]}")
-print(f"the test data ex_check -- Arabic-- {arabic_reshaper.reshape(test_data[:5]['ar'][0])} -- English-- {test_data[:5]['en'][0]}")
+# print(f"the train data ex_check -- Arabic-- {arabic_reshaper.reshape(train_data[1]['translation']['ar'])} -- English-- {train_data[1]['en'][0]}")
+# print(f"the validation data ex_check -- Arabic-- {arabic_reshaper.reshape(validation_data[1]['translation']['ar'])} -- English-- {validation_data[1]['translation']['en']}")
+# print(f"the test data ex_check -- Arabic-- {arabic_reshaper.reshape(test_data[1]['ar'][0])} -- English-- {test_data[1]['translation']['en'][0]}")
+    get_dataset_from_hugging_face(config)
