@@ -5,7 +5,7 @@ warnings.filterwarnings('ignore', message='not allowed')
 
 class Input_Embedding(nn.Module):
     def __init__(self,vocab_size:int,d_model:int):
-        super .__init__()
+        super().__init__()
         self.vocab_size = vocab_size
         self.d_model = d_model
         self.embeddings = nn.Embeddings(vocab_size,d_model)
@@ -17,7 +17,7 @@ class Input_Embedding(nn.Module):
 
 class Positional_Encoding(nn.Module):
     def __init__(self, seq_length:int,d_model:int,dropout:float):
-        super .__init__()
+        super().__init__()
         self.seq_length = seq_length
         self.d_model = d_model
         self.dropout = nn.Dropout()
@@ -44,7 +44,7 @@ class LayerNormalization(nn.Module):
         #alpha and gamma are learnable parameters
         #alpha and gamma control influence of normalized value and original value
         
-        super .__init__()
+        super().__init__()
         self.eps=eps
         self.alpha = nn.parameter(torch.ones(1)) 
         self.gamma = nn.parameter(torch.ones(1))
@@ -56,7 +56,7 @@ class LayerNormalization(nn.Module):
 
 class feed_forrward_nn(nn.Module):
     def __init__(self,d_model,_hid_:int,dropout:float):
-        super .__init__()
+        super().__init__()
         self.lin1 = nn.Linear(d_model,_hid_)
         self.dropout = nn.Dropout(dropout)
         self.lin2 = nn.Linear(_hid_,d_model)
@@ -67,7 +67,7 @@ class feed_forrward_nn(nn.Module):
 
 class multi_head_atten(nn.Module):
     def __init__(self,d_model:int,heads:int,dropout:float)->None:
-        super .__init__()
+        super().__init__()
         self.d_model = d_model
         self.h = heads
         assert d_model % heads == 0 , 'd_model couldnt devide into number of attention heads '
@@ -247,8 +247,7 @@ def build_transformer(src_vocab_size: int, tgt_vocab_size: int, src_seq_len: int
     
     # Create the transformer
     transformer = Transformer(encoder, decoder, src_embed, tgt_embed, src_pos, tgt_pos, projection_layer)
-    
-    # Initialize the parameters
+
     for p in transformer.parameters():
         if p.dim() > 1:
             nn.init.xavier_uniform_(p)

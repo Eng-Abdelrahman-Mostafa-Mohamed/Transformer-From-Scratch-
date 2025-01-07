@@ -31,7 +31,6 @@ def build_tokenizer(config, data, lang):
     return tokenizer
 
 
-
 class CreateTrainingDataForTransformer(Dataset):
     def __init__(self, config, data):
         self.config = config
@@ -43,8 +42,8 @@ class CreateTrainingDataForTransformer(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        src_text = self.data[config['src_lang']][idx]
-        tgt_text = self.data[config['tgt_lang']][idx]
+        src_text = self.data.iloc[idx][config['src_lang']]
+        tgt_text = self.data.iloc[idx][config['tgt_lang']]
         src_tokenized = self.src_tokenizer.encode(src_text).ids
         tgt_tokenized = self.tgt_tokenizer.encode(tgt_text).ids
         return torch.tensor(src_tokenized), torch.tensor(tgt_tokenized)
@@ -61,12 +60,11 @@ def process_data(data):
     return data
 
 
-
 def get_max_seq_len(data):
     max_seq_len = 0
     for i in range(len(data)):
-        src_text = data[config['src_lang']][i]
-        tgt_text = data[config['tgt_lang']][i]
+        src_text = data.iloc[i][config['src_lang']]
+        tgt_text = data.iloc[i][config['tgt_lang']]
         src_tokenized = len(src_text.split())
         tgt_tokenized = len(tgt_text.split())
         if src_tokenized > max_seq_len:
@@ -74,6 +72,7 @@ def get_max_seq_len(data):
         if tgt_tokenized > max_seq_len:
             max_seq_len = tgt_tokenized
     return max_seq_len
+
 
 def train_transformer(config, data):
     data = process_data(data)
@@ -83,10 +82,11 @@ def train_transformer(config, data):
     src_vocab_size = len(training_data.src_tokenizer.get_vocab())
     tgt_vocab_size = len(training_data.tgt_tokenizer.get_vocab())
 
-    model = build_transformer(src_seq_len=get_max_seq_len(data[config['src_lang']]),
-        tgt_seq_len=get_max_seq_len(data[config['tgt_lang']]),
-        src_vocab_size=src_vocab_size, tgt_vocab_size=tgt_vocab_size, d_model=512, h=8, N=6,
-        dropout=0.1,d_ff=2048 
+    model = build_transformer(
+        src_seq_len=get_max_seq_len(data),
+        tgt_seq_len=get_max_seq_len(data),
+        src_vocab_size=src_vocab_size, tgt_vocab_size=tgt_vocab_size,
+        d_model=512, h=8, N=6, dropout=0.1, d_ff=2048
     )
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
@@ -105,6 +105,10 @@ def train_transformer(config, data):
 
 
 if __name__ == '__main__':
+    Path(config['tokenizer_path']).mkdir(parents=True, exist_ok=True)
+    Path(config['model_path']).mkdir(parents=True, exist_ok=True)
+
+
     data = pd.read_csv('ara.txt', sep='\t', header=None, names=['English', 'Arabic', 'decryption'])
-    data.drop('decryption', axis=1, inplace=True)
+    data.drop(columns=['decryption'], inplace=True)
     train_transformer(config, data)
