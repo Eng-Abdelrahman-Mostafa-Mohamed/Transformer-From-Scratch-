@@ -109,11 +109,12 @@ class CreateTrainingDataForTransformer(Dataset):
         
         # the input of decoder is using for training the model to predict the target token in training time  itnwill be 
         decoder_input = torch.cat( 
+                            torch.tensor(self.sos_token),
+                            
                             torch.tensor(tgt_tokens_input_dec , dtype=torch.int64),
                             
                             torch.tensor([self.pad_token]*tgt_dec_num_padding_needed , dtype=torch.int64),
                             
-                            torch.tensor(self.eos_token , dtype=torch.int64)
 
                             )
         
@@ -127,7 +128,7 @@ class CreateTrainingDataForTransformer(Dataset):
                             torch.tensor(self.eos_token , dtype=torch.int64)
 
         )                                   
-        return torch.tensor(src_tokenized), torch.tensor(tgt_tokenized)
+        return None
 
 
 def process_data(data):
