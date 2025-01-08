@@ -10,9 +10,11 @@ from datasets import load_dataset
 import arabic_reshaper
 from tqdm import tqdm
 torch.cuda.set_device(0)
+print('-----------------------------------------------------------------')
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(device) # get name of gpu if available
+print(device) 
 print(torch.cuda.current_device()) 
+print('-----------------------------------------------------------------')
 config = {
     'tokenizer_path': '.',
     'model_path': 'traiend_model/best_model_weights.pth',
