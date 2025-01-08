@@ -109,7 +109,9 @@ The decoder is similar to the encoder but with some differences:
    MaskedAttention(Q, K, V) = softmax(QK^T / sqrt(d_k) + mask) * V
    ```
 
+
 2. **Encoder-Decoder Attention**
+      ![Attention mechanism](<Screenshot From 2025-01-07 19-09-59.png>)
    - Attends to the encoder's output.
    ```
    Attention(Q, K, V) = softmax(QK^T / sqrt(d_k)) * V
@@ -118,6 +120,10 @@ The decoder is similar to the encoder but with some differences:
 3. **Feed-Forward Network**
    - Same as in the encoder.
 
+# ** ther is Question may 
 
 #### We take about The architecture But How It actually Trained for Various Tasks (Translation(encoder_decoder_model) , classification(encoder only model),text generation "Trends now adays  😅 "(decoder only models)-->That's type of transformer is the top  used in advanced llm techniques like Rag - Agentic AI by integrate  multible llms together or llms+tools like ote saver ot code runner & evaluator)
+
+
+# we see in code how transformer built from scratch for text translation
 

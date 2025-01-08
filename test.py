@@ -1,284 +1,240 @@
-import torch
-import torch.nn as nn
-import math
 import pandas as pd
 from tokenizers import Tokenizer, models, pre_tokenizers, trainers
 from pathlib import Path
+import torch
 from torch.utils.data import Dataset, DataLoader
 from textblob import TextBlob as tb
+from Transformer import build_transformer
+from torch.utils.data import Dataset, DataLoader 
+from datasets import load_dataset
+import arabic_reshaper
 
+torch.cuda.set_device(0)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# 1. Embedding Layer
-class InputEmbedding(nn.Module):
-    def __init__(self, vocab_size: int, d_model: int):
-        super().__init__()
-        self.embedding = nn.Embedding(vocab_size, d_model)
+config = {
+    'tokenizer_path': '.',
+    'model_path': 'traiend_model/best_model_weights.pth',
+    'data_path': './ara.csv',
+    'src_lang': 'ar',
+    'tgt_lang': 'en',
+    'batch_size': 16,
+    'seq_len': 6670,
+    'd_model': 512,
+    'N' : 6,
+    'h' : 8,
+    'dropout' : 0.1,
+    'd_ff' : 2048,
+}
 
-    def forward(self, x):
-        return self.embedding(x)
+def get_all_sents(ds, lang):
+    for itm in ds:
+        yield itm['translation'][lang]
 
-
-# 2. Positional Encoding Layer
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, max_len: int = 512):
-        super().__init__()
-        position = torch.arange(max_len).unsqueeze(1).float()
-        div_term = torch.exp(
-            torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)
+def build_tokenizer(config, data, lang):
+    tokenizer_path = Path(config['tokenizer_path']) / f"tokenizer_{lang}.json"
+    if not Path.exists(tokenizer_path):
+        tokenizer = Tokenizer(models.WordLevel(unk_token="[<unk>]"))
+        tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+        trainer = trainers.WordLevelTrainer(
+            special_tokens=["[<unk>]", "[<start>]", "[<end>]", "[<pad>]"], min_frequency=2
         )
-        pe = torch.zeros(max_len, d_model)
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
-        self.register_buffer("pe", pe)
+        tokenizer.train_from_iterator(get_all_sents(data, lang), trainer=trainer)
+        tokenizer.save(str(tokenizer_path))  
+    else:
+        tokenizer = Tokenizer.from_file(str(tokenizer_path))
+    return tokenizer
 
-    def forward(self, x):
-        return x + self.pe[:, : x.size(1)]
+def get_dataset_from_hugging_face(config):
+    train_data = load_dataset('Helsinki-NLP/opus-100', f"{config['src_lang']}-{config['tgt_lang']}", split='train')
+    test_data = load_dataset('Helsinki-NLP/opus-100', f"{config['src_lang']}-{config['tgt_lang']}", split='test')
+    print(f"{train_data[1]['translation'][config['src_lang']]}")
+    validation_data = load_dataset('Helsinki-NLP/opus-100', f"{config['src_lang']}-{config['tgt_lang']}", split='validation')
+    
+    train_src_tokenizer = build_tokenizer(config, train_data, config['src_lang'])
+    train_tgt_tokenizer = build_tokenizer(config, train_data, config['tgt_lang'])
+    
+    ready_train_data = CreateTrainingDataForTransformer(train_data, train_src_tokenizer, train_tgt_tokenizer, config['src_lang'], config['tgt_lang'], config['seq_len'])
+    ready_val_data = CreateTrainingDataForTransformer(validation_data, train_src_tokenizer, train_tgt_tokenizer, config['src_lang'], config['tgt_lang'], config['seq_len'])
+    
+    max_src_seq_len = 0
+    max_tgt_seq_len = 0
+    for item in train_data:
+        max_src_seq_len = max(max_src_seq_len, len(train_src_tokenizer.encode(item['translation'][config['src_lang']]).ids))
+        max_tgt_seq_len = max(max_tgt_seq_len, len(train_src_tokenizer.encode(item['translation'][config['tgt_lang']]).ids))
+        
+    print(f"max_src_seq_len {max_src_seq_len} max_tgt_seq_len {max_tgt_seq_len}")
+    
+    train_data_loader = DataLoader(ready_train_data, batch_size=config['batch_size'], shuffle=True)
+    val_data_loader = DataLoader(ready_val_data, batch_size=1, shuffle=True)
+    
+    return train_data_loader, val_data_loader, train_src_tokenizer, train_tgt_tokenizer, test_data
 
+class CreateTrainingDataForTransformer(Dataset):
+    def __init__(self, data, tokenizer_src, tokenizer_tgt, src_language, target_language, seq_len):
+        self.config = config
+        self.data = data
+        self.seq_len = seq_len
+        self.src_tokenizer = tokenizer_src
+        self.tgt_tokenizer = tokenizer_tgt
+        self.src_language = src_language
+        self.target_language = target_language
+        self.sos_token = torch.tensor([self.src_tokenizer.token_to_id("[<start>]")], dtype=torch.int64).to(device)
+        self.eos_token = torch.tensor([self.src_tokenizer.token_to_id("[<end>]")], dtype=torch.int64).to(device)
+        self.pad_token = torch.tensor([self.src_tokenizer.token_to_id("[<pad>]")]).to(device)
+        self.src_tokenizer = build_tokenizer(config, data, config['src_lang'])
+        self.tgt_tokenizer = build_tokenizer(config, data, config['tgt_lang'])
 
-# 3. Multi-Head Attention Layer
-class MultiHeadAttention(nn.Module):
-    def __init__(self, d_model: int, heads: int, dropout: float) -> None:
-        super().__init__()
-        assert d_model % heads == 0, "d_model must be divisible by heads"
-        self.d_k = d_model // heads
-        self.heads = heads
-        self.d_model = d_model
+    def __len__(self):
+        return len(self.data)
 
-        self.Wq = nn.Linear(d_model, d_model)
-        self.Wk = nn.Linear(d_model, d_model)
-        self.Wv = nn.Linear(d_model, d_model)
-        self.Wout = nn.Linear(d_model, d_model)
-        self.dropout = nn.Dropout(dropout)
+    def __getitem__(self, idx):
+        src_txt_of_idx = self.data[idx]['translation'][self.src_language]
+        tgt_txt_of_idx = self.data[idx]['translation'][self.target_language]
+        
+        src_tokens_input_enc = torch.tensor((self.src_tokenizer.encode(src_txt_of_idx).ids),dtype=torch.int64).to(device)
+        tgt_tokens_input_dec = torch.tensor((self.tgt_tokenizer.encode(tgt_txt_of_idx).ids),dtype=torch.int64).to(device)
+        
+        src_to_enc_num_padding_needed = (self.seq_len - len(src_tokens_input_enc) - 2)
+        tgt_dec_num_padding_needed = (self.seq_len - len(tgt_tokens_input_dec) - 1)
+        
+        if src_to_enc_num_padding_needed < 0 or tgt_dec_num_padding_needed < 0:
+            raise ValueError("The sentence input is too long")
+        
+        encoder_input = torch.cat([
+            self.sos_token,
+            torch.tensor(src_tokens_input_enc, dtype=torch.int64).to(device),
+            self.eos_token,
+            torch.tensor([self.pad_token] * src_to_enc_num_padding_needed, dtype=torch.int64).to(device)
+        ],dim=0).to(device)
+        
+        decoder_input = torch.cat([
+            self.sos_token,
+            torch.tensor(tgt_tokens_input_dec, dtype=torch.int64).to(device),
+            torch.tensor([self.pad_token] * tgt_dec_num_padding_needed, dtype=torch.int64).to(device)
+        ],dim=0).to(device)
+        
+        lable = torch.cat([
+            torch.tensor(tgt_tokens_input_dec, dtype=torch.int64).to(device),
+            self.eos_token,
+            torch.tensor([self.pad_token] * tgt_dec_num_padding_needed, dtype=torch.int64).to(device)
+        ],dim=0).to(device)
+        
+        assert encoder_input.size(0) == self.seq_len
+        assert decoder_input.size(0) == self.seq_len
+        assert lable.size(0) == self.seq_len
+        
+        return {
+            'encoder_input': encoder_input,
+            'decoder_input': decoder_input,
+            'lable': lable,
+            'encoder_mask': ((encoder_input != self.pad_token).unsqueeze(0).unsqueeze(0).int()).to(device),
+            'decoder_mask': ((decoder_input != self.pad_token).type(torch.int64).unsqueeze(0).unsqueeze(0).int() & causal_mask(decoder_input.size(0)).to(device)),
+            'src_txt': src_txt_of_idx,
+            'tgt_txt': tgt_txt_of_idx
+        }
 
-    def attention(self, query, key, value, mask=None):
-        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(self.d_k)
-        if mask is not None:
-            scores = scores.masked_fill(
-                mask == 0, -float("inf")
-            )  # Apply mask to prevent attention to padding tokens
-        attention = torch.softmax(scores, dim=-1)
-        if self.dropout is not None:
-            attention = self.dropout(attention)
-        return torch.matmul(attention, value)
+def causal_mask(tgt_seq_len):
+    mask = torch.triu(torch.ones(tgt_seq_len, tgt_seq_len))
+    return mask == 0
 
-    def forward(self, q, k, v, mask=None):
-        batch_size = q.size(0)
+# def process_data(data):
+#     data = data.apply(lambda x: x.astype(str).str.lower())
+#     data = data.apply(lambda x: x.astype(str).str.replace(r'[^\w\s]', '', regex=True)) # its used for removing special characters from the text data 
+#     data = data.apply(lambda x: x.astype(str).str.replace(r'\d+', '', regex=True)) # its used for removing digits from the text data
+#     data = data.apply(lambda x: x.astype(str).str.replace(r'\n', '', regex=True)) # its used for removing new line from the text data
+#     data = data.apply(lambda x: x.astype(str).str.replace(r'\r', '', regex=True)) # its used for removing carriage return from the text data
+#     data = data.apply(lambda x: x.astype(str).str.replace(r'\s+', ' ', regex=True))
+#     data = data.apply(lambda x: str(tb(x).correct()))
+#     return data
 
-        def transform(x, linear):
-            return linear(x).view(batch_size, -1, self.heads, self.d_k).transpose(1, 2)
+def get_model(config, src_vocab_size, tgt_vocab_size):
+    transformer = build_transformer(src_vocab_size, tgt_vocab_size, config['seq_len'], config['seq_len'], config['d_model'], config['N'], config['h'], config['dropout'], config['d_ff'])
+    transformer = transformer.to(device)
+    return transformer
 
-        query = transform(q, self.Wq)
-        key = transform(k, self.Wk)
-        value = transform(v, self.Wv)
-
-        x = self.attention(query, key, value, mask)
-        x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.d_model)
-        return self.Wout(x)
-
-
-# 4. Position-wise Feedforward Layer
-class PositionwiseFeedforward(nn.Module):
-    def __init__(self, d_model: int, d_ff: int, dropout: float):
-        super().__init__()
-        self.linear1 = nn.Linear(d_model, d_ff)
-        self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(d_ff, d_model)
-
-    def forward(self, x):
-        return self.linear2(self.dropout(torch.relu(self.linear1(x))))
-
-
-# 5. Encoder Layer
-class EncoderLayer(nn.Module):
-    def __init__(self, d_model: int, heads: int, d_ff: int, dropout: float):
-        super().__init__()
-        self.attn = MultiHeadAttention(d_model, heads, dropout)
-        self.ffn = PositionwiseFeedforward(d_model, d_ff, dropout)
-        self.layernorm1 = nn.LayerNorm(d_model)
-        self.layernorm2 = nn.LayerNorm(d_model)
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
-
-    def forward(self, x, mask):
-        # Multi-head attention
-        attn_output = self.attn(x, x, x, mask)
-        x = self.layernorm1(x + self.dropout1(attn_output))
-        # Feedforward layer
-        ffn_output = self.ffn(x)
-        x = self.layernorm2(x + self.dropout2(ffn_output))
-        return x
-
-
-# 6. Decoder Layer
-class DecoderLayer(nn.Module):
-    def __init__(self, d_model: int, heads: int, d_ff: int, dropout: float):
-        super().__init__()
-        self.attn1 = MultiHeadAttention(d_model, heads, dropout)
-        self.attn2 = MultiHeadAttention(d_model, heads, dropout)
-        self.ffn = PositionwiseFeedforward(d_model, d_ff, dropout)
-        self.layernorm1 = nn.LayerNorm(d_model)
-        self.layernorm2 = nn.LayerNorm(d_model)
-        self.layernorm3 = nn.LayerNorm(d_model)
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
-        self.dropout3 = nn.Dropout(dropout)
-
-    def forward(self, x, encoder_output, src_mask, tgt_mask):
-        # Multi-head self-attention
-        attn_output1 = self.attn1(x, x, x, tgt_mask)
-        x = self.layernorm1(x + self.dropout1(attn_output1))
-        # Multi-head attention with encoder output
-        attn_output2 = self.attn2(x, encoder_output, encoder_output, src_mask)
-        x = self.layernorm2(x + self.dropout2(attn_output2))
-        # Feedforward layer
-        ffn_output = self.ffn(x)
-        x = self.layernorm3(x + self.dropout3(ffn_output))
-        return x
-
-
-# 7. Encoder
-class Encoder(nn.Module):
-    def __init__(self, d_model: int, heads: int, d_ff: int, N: int, dropout: float):
-        super().__init__()
-        self.layers = nn.ModuleList(
-            [EncoderLayer(d_model, heads, d_ff, dropout) for _ in range(N)]
-        )
-
-    def forward(self, x, mask):
-        for layer in self.layers:
-            x = layer(x, mask)
-        return x
-
-
-# 8. Decoder
-class Decoder(nn.Module):
-    def __init__(self, d_model: int, heads: int, d_ff: int, N: int, dropout: float):
-        super().__init__()
-        self.layers = nn.ModuleList(
-            [DecoderLayer(d_model, heads, d_ff, dropout) for _ in range(N)]
-        )
-
-    def forward(self, x, encoder_output, src_mask, tgt_mask):
-        for layer in self.layers:
-            x = layer(x, encoder_output, src_mask, tgt_mask)
-        return x
-
-
-# 9. Projection Layer
-class ProjectionLayer(nn.Module):
-    def __init__(self, d_model: int, vocab_size: int):
-        super().__init__()
-        self.linear = nn.Linear(d_model, vocab_size)
-
-    def forward(self, x):
-        return self.linear(x)
-
-
-# 10. Transformer Model
-class Transformer(nn.Module):
-    def __init__(
-        self,
-        encoder: Encoder,
-        decoder: Decoder,
-        src_embed: InputEmbedding,
-        tgt_embed: InputEmbedding,
-        src_pos: PositionalEncoding,
-        tgt_pos: PositionalEncoding,
-        projection_layer: ProjectionLayer,
-    ) -> None:
-        super().__init__()
-        self.encoder = encoder
-        self.decoder = decoder
-        self.src_embed = src_embed
-        self.tgt_embed = tgt_embed
-        self.src_pos = src_pos
-        self.tgt_pos = tgt_pos
-        self.projection_layer = projection_layer
-
-    def encode(self, src, src_mask):
-        src = self.src_embed(src)
-        src = self.src_pos(src)
-        return self.encoder(src, src_mask)
-
-    def decode(
-        self,
-        encoder_output: torch.Tensor,
-        src_mask: torch.Tensor,
-        tgt: torch.Tensor,
-        tgt_mask: torch.Tensor,
-    ):
-        tgt = self.tgt_embed(tgt)
-        tgt = self.tgt_pos(tgt)
-        return self.decoder(tgt, encoder_output, src_mask, tgt_mask)
-
-    def project(self, x):
-        return self.projection_layer(x)
-
-    def forward(self, src, tgt, src_mask, tgt_mask):
-        # Encoding the source input
-        encoder_output = self.encode(src, src_mask)
-        # Decoding the target input using the encoder output
-        decoder_output = self.decode(encoder_output, src_mask, tgt, tgt_mask)
-        # Projecting the decoder output to the vocabulary space
-        return self.project(decoder_output)
-
-
-# 11. Helper Functions for Masking
-def create_padding_mask(seq, pad_token_id):
-    return (
-        (seq != pad_token_id).unsqueeze(1).unsqueeze(2)
-    )  # Shape: (batch_size, 1, 1, seq_len)
-
-
-def create_look_ahead_mask(size):
-    mask = torch.triu(torch.ones((size, size)), diagonal=1)
-    return mask == 0  # Returns a lower triangular matrix of False/True
-
-
-# 12. Training Function
-def train_transformer(config, data):
-    data = process_data(data)
-    training_data = CreateTrainingDataForTransformer(config, data)
-    training_data_loader = DataLoader(
-        training_data, batch_size=32, shuffle=True, collate_fn=collate_fn
-    )
-
-    src_vocab_size = len(training_data.src_tokenizer.get_vocab())
-    tgt_vocab_size = len(training_data.tgt_tokenizer.get_vocab())
-
-    model = build_transformer(
-        src_seq_len=get_max_seq_len(data),
-        tgt_seq_len=get_max_seq_len(data),
-        src_vocab_size=src_vocab_size,
-        tgt_vocab_size=tgt_vocab_size,
-        d_model=512,
-        h=8,
-        N=6,
-        dropout=0.1,
-        d_ff=2048,
-    )
-    model.train()
+def train_transformer():
+    train_data, val_data, src_tokenizer, tgt_tokenizer, test_data = get_dataset_from_hugging_face(config)
+    print(f'the shape of the train_data is {next(iter(train_data)).shape}')
+    src_vocab_size = len(src_tokenizer.get_vocab())
+    tgt_vocab_size = len(tgt_tokenizer.get_vocab())
+    model = get_model(config, src_vocab_size, tgt_vocab_size).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-    criterion = torch.nn.CrossEntropyLoss(
-        ignore_index=training_data.tgt_tokenizer.token_to_id("<pad>")
-    )
-
+    criterion = torch.nn.CrossEntropyLoss()
     for epoch in range(10):
-        for src_tokenized, tgt_tokenized in training_data_loader:
+        model.train()
+        total_loss = 0
+        for batch in train_data:
+            encoder_input = batch['encoder_input'].to(device)
+            decoder_input = batch['decoder_input'].to(device)
+            lable = batch['lable'].to(device)
+            encoder_mask = batch['encoder_mask'].to(device)
+            decoder_mask = batch['decoder_mask'].to(device)
             optimizer.zero_grad()
-            tgt_input = tgt_tokenized[:, :-1]
-            tgt_output = tgt_tokenized[:, 1:]
-
-            # Generate padding masks for source and target sequences
-            src_mask = create_padding_mask(src_tokenized, training_data.pad_token_id)
-            tgt_mask = create_padding_mask(
-                tgt_input, training_data.pad_token_id
-            ) & create_look_ahead_mask(tgt_input.size(1))
-
-            # Forward pass
-            output = model(src_tokenized, tgt_input, src_mask, tgt_mask)
-            loss = criterion(output.view(-1, output.size(-1)), tgt_output.view(-1))
+            output = model(encoder_input, decoder_input, encoder_mask, decoder_mask)
+            loss = criterion(output, lable)
             loss.backward()
             optimizer.step()
-            print(f"Epoch: {epoch}, Loss: {loss.item()}")
+            total_loss += loss.item()
+        avg_train_loss = total_loss / len(train_data)
+        model.eval()
+        total_loss = 0
+        for batch in val_data:
+            encoder_input = batch['encoder_input'].to(device)
+            decoder_input = batch['decoder_input'].to(device)
+            lable = batch['lable'].to(device)
+            encoder_mask = batch['encoder_mask'].to(device)
+            decoder_mask = batch['decoder_mask'].to(device)
+            output = model(encoder_input, decoder_input, encoder_mask, decoder_mask)
+            loss = criterion(output, lable)
+            total_loss += loss.item()
+        avg_val_loss = total_loss / len(val_data)
+        print(f"Epoch: {epoch} Loss: {total_loss/len(val_data)}")
+        if avg_val_loss < avg_train_loss:
+            torch.save(model.state_dict(), config['model_path'])
+    return model
+
+def load_model(config, src_vocab_size, tgt_vocab_size, model_path):
+    model = get_model(config, src_vocab_size, tgt_vocab_size)
+    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    model.eval()
+    return model
+
+def translate_sentence(model, sentence, src_tokenizer, tgt_tokenizer, max_seq_len):
+    model.eval()
+    
+    # Tokenize the input sentence
+    sentence = arabic_reshaper.reshape(sentence)
+    tokens = src_tokenizer.encode(sentence).ids
+    tokens = [src_tokenizer.token_to_id("[<start>]")] + tokens + [src_tokenizer.token_to_id("[<end>]")]
+    tokens += [src_tokenizer.token_to_id("[<pad>]")] * (max_seq_len - len(tokens))
+    tokens = torch.tensor(tokens).unsqueeze(0).to(device)
+    
+    # Create the input mask
+    src_mask = (tokens != src_tokenizer.token_to_id("[<pad>]")).unsqueeze(1).unsqueeze(2).int().to(device)
+    
+    # Generate predictions
+    output = model.generate(tokens, max_length=max_seq_len, src_mask=src_mask)
+    
+    # Decode the output
+    output_tokens = output.squeeze().tolist()
+    translated_sentence = tgt_tokenizer.decode(output_tokens, skip_special_tokens=True)
+    
+    return translated_sentence
+
+if __name__ == '__main__':
+    data = pd.read_csv(config['data_path'])
+    # data = process_data(data)
+    
+    model = train_transformer()
+    
+    src_tokenizer = build_tokenizer(config, data=None, lang=config['src_lang'])
+    tgt_tokenizer = build_tokenizer(config, data=None, lang=config['tgt_lang'])
+
+    # Load model
+    model = load_model(config, len(src_tokenizer.get_vocab()), len(tgt_tokenizer.get_vocab()), config['model_path'])
+
+    # Translate a sentence
+    sentence = "أهلاً بك في عالم الذكاء الاصطناعي"
+    translated_sentence = translate_sentence(model, sentence, src_tokenizer, tgt_tokenizer, config['seq_len'])
+    print(translated_sentence)
