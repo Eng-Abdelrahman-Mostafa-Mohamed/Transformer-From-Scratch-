@@ -213,6 +213,7 @@ def translate_sentence(model, sentence, src_tokenizer, tgt_tokenizer, max_seq_le
     # Create the input mask
     src_mask = (tokens != src_tokenizer.token_to_id("[<pad>]")).unsqueeze(1).unsqueeze(2).int().to(device)
     
+    
     # Generate predictions
     output = model.generate(tokens, max_length=max_seq_len, src_mask=src_mask)
     

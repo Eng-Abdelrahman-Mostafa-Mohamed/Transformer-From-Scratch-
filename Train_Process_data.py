@@ -8,17 +8,18 @@ from Transformer import build_transformer
 from torch.utils.data import Dataset, DataLoader 
 from datasets import load_dataset
 import arabic_reshaper
-
+from tqdm import tqdm
 torch.cuda.set_device(0)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+print(device) # get name of gpu if available
+print(torch.cuda.current_device()) 
 config = {
     'tokenizer_path': '.',
     'model_path': 'traiend_model/best_model_weights.pth',
     'data_path': './ara.csv',
     'src_lang': 'ar',
     'tgt_lang': 'en',
-    'batch_size': 32,
+    'batch_size': 16,
     'seq_len': 6670,
     'd_model': 512,
     'N' : 6,
@@ -79,9 +80,9 @@ class CreateTrainingDataForTransformer(Dataset):
         self.tgt_tokenizer = tokenizer_tgt
         self.src_language = src_language
         self.target_language = target_language
-        self.sos_token = torch.tensor([self.src_tokenizer.token_to_id("[<start>]")], dtype=torch.int64)
-        self.eos_token = torch.tensor([self.src_tokenizer.token_to_id("[<end>]")], dtype=torch.int64)
-        self.pad_token = torch.tensor([self.src_tokenizer.token_to_id("[<pad>]")])
+        self.sos_token = torch.tensor([self.src_tokenizer.token_to_id("[<start>]")], dtype=torch.int64).to(device)
+        self.eos_token = torch.tensor([self.src_tokenizer.token_to_id("[<end>]")], dtype=torch.int64).to(device)
+        self.pad_token = torch.tensor([self.src_tokenizer.token_to_id("[<pad>]")]).to(device)
         self.src_tokenizer = build_tokenizer(config, data, config['src_lang'])
         self.tgt_tokenizer = build_tokenizer(config, data, config['tgt_lang'])
 
@@ -92,32 +93,32 @@ class CreateTrainingDataForTransformer(Dataset):
         src_txt_of_idx = self.data[idx]['translation'][self.src_language]
         tgt_txt_of_idx = self.data[idx]['translation'][self.target_language]
         
-        src_tokens_input_enc = self.src_tokenizer.encode(src_txt_of_idx).ids
-        tgt_tokens_input_dec = self.tgt_tokenizer.encode(tgt_txt_of_idx).ids
+        src_tokens_input_enc = torch.tensor((self.src_tokenizer.encode(src_txt_of_idx).ids),dtype=torch.int64).to(device)
+        tgt_tokens_input_dec = torch.tensor((self.tgt_tokenizer.encode(tgt_txt_of_idx).ids),dtype=torch.int64).to(device)
         
-        src_to_enc_num_padding_needed = self.seq_len - len(src_tokens_input_enc) - 2
-        tgt_dec_num_padding_needed = self.seq_len - len(tgt_tokens_input_dec) - 1
+        src_to_enc_num_padding_needed = (self.seq_len - len(src_tokens_input_enc) - 2)
+        tgt_dec_num_padding_needed = (self.seq_len - len(tgt_tokens_input_dec) - 1)
         
         if src_to_enc_num_padding_needed < 0 or tgt_dec_num_padding_needed < 0:
             raise ValueError("The sentence input is too long")
         
         encoder_input = torch.cat([
             self.sos_token,
-            torch.tensor(src_tokens_input_enc, dtype=torch.int64),
+            torch.tensor(src_tokens_input_enc, dtype=torch.int64).to(device),
             self.eos_token,
-            torch.tensor([self.pad_token] * src_to_enc_num_padding_needed, dtype=torch.int64)
+            torch.tensor([self.pad_token] * src_to_enc_num_padding_needed, dtype=torch.int64).to(device)
         ],dim=0).to(device)
         
         decoder_input = torch.cat([
             self.sos_token,
-            torch.tensor(tgt_tokens_input_dec, dtype=torch.int64),
-            torch.tensor([self.pad_token] * tgt_dec_num_padding_needed, dtype=torch.int64)
+            torch.tensor(tgt_tokens_input_dec, dtype=torch.int64).to(device),
+            torch.tensor([self.pad_token] * tgt_dec_num_padding_needed, dtype=torch.int64).to(device)
         ],dim=0).to(device)
         
         lable = torch.cat([
-            torch.tensor(tgt_tokens_input_dec, dtype=torch.int64),
+            torch.tensor(tgt_tokens_input_dec, dtype=torch.int64).to(device),
             self.eos_token,
-            torch.tensor([self.pad_token] * tgt_dec_num_padding_needed, dtype=torch.int64)
+            torch.tensor([self.pad_token] * tgt_dec_num_padding_needed, dtype=torch.int64).to(device)
         ],dim=0).to(device)
         
         assert encoder_input.size(0) == self.seq_len
@@ -128,8 +129,8 @@ class CreateTrainingDataForTransformer(Dataset):
             'encoder_input': encoder_input,
             'decoder_input': decoder_input,
             'lable': lable,
-            'encoder_mask': (encoder_input != self.pad_token).unsqueeze(0).unsqueeze(0).int(),
-            'decoder_mask': (decoder_input != self.pad_token).type(torch.int64).unsqueeze(0).unsqueeze(0).int() & causal_mask(decoder_input.size(0)),
+            'encoder_mask': ((encoder_input != self.pad_token).unsqueeze(0).unsqueeze(0).int()).to(device),
+            'decoder_mask': ((decoder_input != self.pad_token).type(torch.int64).unsqueeze(0).unsqueeze(0).int() & causal_mask(decoder_input.size(0)).to(device)),
             'src_txt': src_txt_of_idx,
             'tgt_txt': tgt_txt_of_idx
         }
@@ -138,15 +139,15 @@ def causal_mask(tgt_seq_len):
     mask = torch.triu(torch.ones(tgt_seq_len, tgt_seq_len))
     return mask == 0
 
-def process_data(data):
-    data = data.apply(lambda x: x.astype(str).str.lower())
-    data = data.apply(lambda x: x.astype(str).str.replace(r'[^\w\s]', '', regex=True))
-    data = data.apply(lambda x: x.astype(str).str.replace(r'\d+', '', regex=True))
-    data = data.apply(lambda x: x.astype(str).str.replace(r'\n', '', regex=True))
-    data = data.apply(lambda x: x.astype(str).str.replace(r'\r', '', regex=True))
-    data = data.apply(lambda x: x.astype(str).str.replace(r'\s+', ' ', regex=True))
-    data = data.apply(lambda x: str(tb(x).correct()))
-    return data
+# def process_data(data):
+#     data = data.apply(lambda x: x.astype(str).str.lower())
+#     data = data.apply(lambda x: x.astype(str).str.replace(r'[^\w\s]', '', regex=True)) # its used for removing special characters from the text data 
+#     data = data.apply(lambda x: x.astype(str).str.replace(r'\d+', '', regex=True)) # its used for removing digits from the text data
+#     data = data.apply(lambda x: x.astype(str).str.replace(r'\n', '', regex=True)) # its used for removing new line from the text data
+#     data = data.apply(lambda x: x.astype(str).str.replace(r'\r', '', regex=True)) # its used for removing carriage return from the text data
+#     data = data.apply(lambda x: x.astype(str).str.replace(r'\s+', ' ', regex=True))
+#     data = data.apply(lambda x: str(tb(x).correct()))
+#     return data
 
 def get_model(config, src_vocab_size, tgt_vocab_size):
     transformer = build_transformer(src_vocab_size, tgt_vocab_size, config['seq_len'], config['seq_len'], config['d_model'], config['N'], config['h'], config['dropout'], config['d_ff'])
@@ -155,7 +156,7 @@ def get_model(config, src_vocab_size, tgt_vocab_size):
 
 def train_transformer():
     train_data, val_data, src_tokenizer, tgt_tokenizer, test_data = get_dataset_from_hugging_face(config)
-    print(f'the shape of the train_data is {train_data.shape}')
+    print(f'the shape of the train_data is {next(iter(train_data)).shape}')
     src_vocab_size = len(src_tokenizer.get_vocab())
     tgt_vocab_size = len(tgt_tokenizer.get_vocab())
     model = get_model(config, src_vocab_size, tgt_vocab_size).to(device)
@@ -165,11 +166,11 @@ def train_transformer():
         model.train()
         total_loss = 0
         for batch in train_data:
-            encoder_input = batch['encoder_input']
-            decoder_input = batch['decoder_input']
-            lable = batch['lable']
-            encoder_mask = batch['encoder_mask']
-            decoder_mask = batch['decoder_mask']
+            encoder_input = batch['encoder_input'].to(device)
+            decoder_input = batch['decoder_input'].to(device)
+            lable = batch['lable'].to(device)
+            encoder_mask = batch['encoder_mask'].to(device)
+            decoder_mask = batch['decoder_mask'].to(device)
             optimizer.zero_grad()
             output = model(encoder_input, decoder_input, encoder_mask, decoder_mask)
             loss = criterion(output, lable)
@@ -180,11 +181,11 @@ def train_transformer():
         model.eval()
         total_loss = 0
         for batch in val_data:
-            encoder_input = batch['encoder_input']
-            decoder_input = batch['decoder_input']
-            lable = batch['lable']
-            encoder_mask = batch['encoder_mask']
-            decoder_mask = batch['decoder_mask']
+            encoder_input = batch['encoder_input'].to(device)
+            decoder_input = batch['decoder_input'].to(device)
+            lable = batch['lable'].to(device)
+            encoder_mask = batch['encoder_mask'].to(device)
+            decoder_mask = batch['decoder_mask'].to(device)
             output = model(encoder_input, decoder_input, encoder_mask, decoder_mask)
             loss = criterion(output, lable)
             total_loss += loss.item()
@@ -194,38 +195,36 @@ def train_transformer():
             torch.save(model.state_dict(), config['model_path'])
     return model
 
-# def load_model(config, src_vocab_size, tgt_vocab_size, model_path):
-#     model = get_model(config, src_vocab_size, tgt_vocab_size)
-#     model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-#     model.eval()
-#     return model
+def load_model(config, src_vocab_size, tgt_vocab_size, model_path):
+    model = get_model(config, src_vocab_size, tgt_vocab_size)
+    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    model.eval()
+    return model
 
-# def translate_sentence(model, sentence, src_tokenizer, tgt_tokenizer, max_seq_len):
-#     model.eval()
+def translate_sentence(model, sentence, src_tokenizer, tgt_tokenizer, max_seq_len):
+    model.eval()
     
-#     # Tokenize the input sentence
-#     sentence = arabic_reshaper.reshape(sentence)
-#     tokens = src_tokenizer.encode(sentence).ids
-#     tokens = [src_tokenizer.token_to_id("[<start>]")] + tokens + [src_tokenizer.token_to_id("[<end>]")]
-#     tokens += [src_tokenizer.token_to_id("[<pad>]")] * (max_seq_len - len(tokens))
-#     tokens = torch.tensor(tokens).unsqueeze(0)
+    # Tokenize the input sentence
+    sentence = arabic_reshaper.reshape(sentence)
+    tokens = src_tokenizer.encode(sentence).ids
+    tokens = [src_tokenizer.token_to_id("[<start>]")] + tokens + [src_tokenizer.token_to_id("[<end>]")]
+    tokens += [src_tokenizer.token_to_id("[<pad>]")] * (max_seq_len - len(tokens))
+    tokens = torch.tensor(tokens).unsqueeze(0).to(device)
     
-#     # Create the input mask
-#     src_mask = (tokens != src_tokenizer.token_to_id("[<pad>]")).unsqueeze(1).unsqueeze(2).int()
+    # Create the input mask
+    src_mask = (tokens != src_tokenizer.token_to_id("[<pad>]")).unsqueeze(1).unsqueeze(2).int().to(device)
     
-#     # Generate predictions
-#     output = model.generate(tokens, max_length=max_seq_len, src_mask=src_mask)
     
-#     # Decode the output
-#     output_tokens = output.squeeze().tolist()
-#     translated_sentence = tgt_tokenizer.decode(output_tokens, skip_special_tokens=True)
+    # Generate predictions
+    output = model.generate(tokens, max_length=max_seq_len, src_mask=src_mask)
     
-#     return translated_sentence
+    # Decode the output
+    output_tokens = output.squeeze().tolist()
+    translated_sentence = tgt_tokenizer.decode(output_tokens, skip_special_tokens=True)
+    
+    return translated_sentence
 
 if __name__ == '__main__':
-    data = pd.read_csv(config['data_path'])
-    data = process_data(data)
-    
     model = train_transformer()
     
     src_tokenizer = build_tokenizer(config, data=None, lang=config['src_lang'])
