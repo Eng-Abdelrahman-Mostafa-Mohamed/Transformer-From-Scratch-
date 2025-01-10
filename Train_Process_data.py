@@ -9,6 +9,9 @@ from torch.utils.data import Dataset, DataLoader
 from datasets import load_dataset
 import arabic_reshaper
 from tqdm import tqdm
+from Transformer import load_model , train_transformer , get_Transformer
+# the main problem of training the transformer is cuda out of memory error so we mostly Fine tune the model on the hugging face
+
 torch.cuda.set_device(0)
 print('-----------------------------------------------------------------')
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -18,7 +21,6 @@ print('-----------------------------------------------------------------')
 config = {
     'tokenizer_path': '.',
     'model_path': 'traiend_model/best_model_weights.pth',
-    'data_path': './ara.csv',
     'src_lang': 'ar',
     'tgt_lang': 'en',
     'batch_size': 16,
@@ -28,6 +30,7 @@ config = {
     'h' : 8,
     'dropout' : 0.1,
     'd_ff' : 2048,
+    'lr' : 0.01,
 }
 
 def get_all_sents(ds, lang):
@@ -37,12 +40,12 @@ def get_all_sents(ds, lang):
 def build_tokenizer(config, data, lang):
     tokenizer_path = Path(config['tokenizer_path']) / f"tokenizer_{lang}.json"
     if not Path.exists(tokenizer_path):
-        tokenizer = Tokenizer(models.WordLevel(unk_token="[<unk>]"))
-        tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+        tokenizer = Tokenizer(models.WordLevel(unk_token="[<unk>]")) # models.WordLevel(unk_token="[<unk>]" iterate on words and replace un known word with <unk> token and making tokenizer 
+        tokenizer.pre_tokenizer = pre_tokenizers.Whitespace() # tokinizing  using spaces 
         trainer = trainers.WordLevelTrainer(
-            special_tokens=["[<unk>]", "[<start>]", "[<end>]", "[<pad>]"], min_frequency=2
+            special_tokens=["[<unk>]", "[<start>]", "[<end>]", "[<pad>]"], min_frequency=2 # min_frequency=2 means that the word that is repeated 2 times or more will be tokenized
         )
-        tokenizer.train_from_iterator(get_all_sents(data, lang), trainer=trainer)
+        tokenizer.train_from_iterator(get_all_sents(data, lang), trainer=trainer) # training the tokenizer on the data
         tokenizer.save(str(tokenizer_path))  
     else:
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
@@ -104,6 +107,16 @@ class CreateTrainingDataForTransformer(Dataset):
         if src_to_enc_num_padding_needed < 0 or tgt_dec_num_padding_needed < 0:
             raise ValueError("The sentence input is too long")
         
+        # Hint : the encoder input should be [sos] + src_tokens_input_enc + [eos] + [pad] * num_padding_needed 
+        # Hint : the decoder input should be [sos] + tgt_tokens_input_dec + [pad] * num_padding_needed why we dont add [eos] token here? 
+        # Hint : the lable should be tgt_tokens_input_dec + [eos] + [pad] * num_padding_needed
+        # the reson is   Shifting the target sequence by one position to the right, the decoder input should be [sos] + tgt_tokens_input_dec + [pad] * num_padding_needed
+        
+        # my name is abdelrahman
+        # [sos] my name is abdelrahman [eos]
+        # Target --> [sos] ich bin abdelrahman shifted by one position to the right decoder could see the current and previous token only and predect next token 
+        # lable --> ich bin abdelrahman [eos]   # the lable should be the target shifted by one position to the right
+        
         encoder_input = torch.cat([
             self.sos_token,
             torch.tensor(src_tokens_input_enc, dtype=torch.int64).to(device),
@@ -124,7 +137,7 @@ class CreateTrainingDataForTransformer(Dataset):
         ],dim=0).to(device)
         
         assert encoder_input.size(0) == self.seq_len
-        assert decoder_input.size(0) == self.seq_len
+        assert decoder_input.size(0) == self.seq_len # chack that its padded
         assert lable.size(0) == self.seq_len
         
         return {
@@ -141,6 +154,7 @@ def causal_mask(tgt_seq_len):
     mask = torch.triu(torch.ones(tgt_seq_len, tgt_seq_len))
     return mask == 0
 
+# date is ready no need to preprocess but its important step to preprocess the data
 # def process_data(data):
 #     data = data.apply(lambda x: x.astype(str).str.lower())
 #     data = data.apply(lambda x: x.astype(str).str.replace(r'[^\w\s]', '', regex=True)) # its used for removing special characters from the text data 
@@ -151,57 +165,7 @@ def causal_mask(tgt_seq_len):
 #     data = data.apply(lambda x: str(tb(x).correct()))
 #     return data
 
-def get_model(config, src_vocab_size, tgt_vocab_size):
-    transformer = build_transformer(src_vocab_size, tgt_vocab_size, config['seq_len'], config['seq_len'], config['d_model'], config['N'], config['h'], config['dropout'], config['d_ff'])
-    transformer = transformer.to(device)
-    return transformer
 
-def train_transformer():
-    train_data, val_data, src_tokenizer, tgt_tokenizer, test_data = get_dataset_from_hugging_face(config)
-    print(f'the shape of the train_data is {next(iter(train_data)).shape}')
-    src_vocab_size = len(src_tokenizer.get_vocab())
-    tgt_vocab_size = len(tgt_tokenizer.get_vocab())
-    model = get_model(config, src_vocab_size, tgt_vocab_size).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-    criterion = torch.nn.CrossEntropyLoss()
-    for epoch in range(10):
-        model.train()
-        total_loss = 0
-        for batch in train_data:
-            encoder_input = batch['encoder_input'].to(device)
-            decoder_input = batch['decoder_input'].to(device)
-            lable = batch['lable'].to(device)
-            encoder_mask = batch['encoder_mask'].to(device)
-            decoder_mask = batch['decoder_mask'].to(device)
-            optimizer.zero_grad()
-            output = model(encoder_input, decoder_input, encoder_mask, decoder_mask)
-            loss = criterion(output, lable)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-        avg_train_loss = total_loss / len(train_data)
-        model.eval()
-        total_loss = 0
-        for batch in val_data:
-            encoder_input = batch['encoder_input'].to(device)
-            decoder_input = batch['decoder_input'].to(device)
-            lable = batch['lable'].to(device)
-            encoder_mask = batch['encoder_mask'].to(device)
-            decoder_mask = batch['decoder_mask'].to(device)
-            output = model(encoder_input, decoder_input, encoder_mask, decoder_mask)
-            loss = criterion(output, lable)
-            total_loss += loss.item()
-        avg_val_loss = total_loss / len(val_data)
-        print(f"Epoch: {epoch} Loss: {total_loss/len(val_data)}")
-        if avg_val_loss < avg_train_loss:
-            torch.save(model.state_dict(), config['model_path'])
-    return model
-
-def load_model(config, src_vocab_size, tgt_vocab_size, model_path):
-    model = get_model(config, src_vocab_size, tgt_vocab_size)
-    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-    model.eval()
-    return model
 
 def translate_sentence(model, sentence, src_tokenizer, tgt_tokenizer, max_seq_len):
     model.eval()
@@ -220,19 +184,18 @@ def translate_sentence(model, sentence, src_tokenizer, tgt_tokenizer, max_seq_le
     # Generate predictions
     output = model.generate(tokens, max_length=max_seq_len, src_mask=src_mask)
     
-    # Decode the output
+    # Decode the outputs
     output_tokens = output.squeeze().tolist()
     translated_sentence = tgt_tokenizer.decode(output_tokens, skip_special_tokens=True)
     
     return translated_sentence
 
 if __name__ == '__main__':
-    model = train_transformer()
     
-    src_tokenizer = build_tokenizer(config, data=None, lang=config['src_lang'])
-    tgt_tokenizer = build_tokenizer(config, data=None, lang=config['tgt_lang'])
-
-    # Load model
+    train_data_loader, val_data_loader, src_tokenizer, tgt_tokenizer, test_data = get_dataset_from_hugging_face(config)
+    epochs = 10
+    model = train_transformer(config, train_data_loader, val_data_loader, len(src_tokenizer.get_vocab()), len(tgt_tokenizer.get_vocab()), epochs,config['lr'])
+    
     model = load_model(config, len(src_tokenizer.get_vocab()), len(tgt_tokenizer.get_vocab()), config['model_path'])
 
     # Translate a sentence
