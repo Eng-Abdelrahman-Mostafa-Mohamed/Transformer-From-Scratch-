@@ -34,7 +34,7 @@ class PositionalEncoding(nn.Module):
         
         # but the div term is not as the last formula comment 
         # the div term is the same as the formula but it is in the exp log form how ?
-        #lets take example of eq.                                       #e^bln(a) = a^b        # y= b*lna=A^b
+        #lets take example of eq.                                       #e^bln(a) = a^b       # y= b*lna=A^b
         #lets assume that we have a^b = y  --> ln(a^b) = ln(y)  --> b*ln(a) = ln(y)  --> subtitude y with a^b and apply exponent on both side --> a^b = e^(b*ln(a))  the diffrent only that i use log (b log(a))
         # then the rule is a^b = e^(b*ln(a))  so the div_term is the same as the formula but it is in the exp log form [first]^[second] = e^([second]*ln([first]))
         
@@ -89,7 +89,7 @@ class MultiHeadAttention(nn.Module):
         self.Wv = nn.Linear(d_model, d_model)
         self.Wout = nn.Linear(d_model, d_model)
         self.dropout = nn.Dropout(dropout)
-
+    #(batchsize,seq,d_model) --> batch_size,h,seq*dk)
     def attention(self, query, key, value, mask):
         scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(self.d_k)
         if mask is not None:
