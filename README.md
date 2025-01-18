@@ -13,6 +13,7 @@ The goal is to train a model in context, not just on individual words. We want t
 
 ### How DL or ML model trained or understand  the text?
 ####      as the models doesnt understand any thing nan(not a number ) --> we have multible encoding techniques devidied into 2 Main  chatagories .
+
    - Non Trainable    
       - encoding by index only  [problem is OOV ( out of vocabulary and Memory cosuming)]
       - encoding by index and frequancy 
@@ -59,9 +60,14 @@ The goal is to train a model in context, not just on individual words. We want t
    - complex DL like DeppNN Then we optimized it with new arciticture like some CV ariticture and latest model called sequance models [one example of it Transformer we will see it after some minutes 
    ]
 ### How NLP Relates to Computer Vision
+ its a cat eating fish 
+ - [0.3 , 8, 0.5 ] 2  -> [0.3,0.4]  
+ - [0.1,0.5,0.4] 
 
 Let's take an example from computer vision:
-
+ [1 1 1]   0.5 [0.5+1  0.5+1  0.5+1] 
+ [2  2  2] 0.5
+ 
 * We train a model for each pixel in an image.
 * There's a relation between pixels as a whole to specify the image class (e.g., using CNNs with kernels).
 * Similarly, we can use CNNs on encoded vectors (embeddings) in NLP. However, for images, the kernel moves in 2 dimensions (2D-CNN).
@@ -76,6 +82,16 @@ Therefore, we need models that can "remember" weights (the knowledge of the mode
 * RNN-LSTM-GRU (see [RNN-LSTM-GRU example](https://www.kaggle.com/code/abdelrahmanm2003/gen-rnn-model-ipynb))
 * RNN-LSTM-GRU with Attention
 * Transformer The Big Boss (The Core Model Of LLM - RAG)-4188-ab77-30a6c2953741.png
+
+
+
+
+
+# seq * vocap size outed 
+
+[0001]cat [ 5  7  9   8]
+
+
 
 ### What is Attention?
 
@@ -183,7 +199,7 @@ The decoder is similar to the encoder but with some differences:
 
  ) 
 
- # know How to use Pre trained LLm models .
+ # How to use Pre trained LLm models .
    - Retrain it from Scratch (use it as arciticture only)
    - Apply Transfer Learning (Fine tuning)
       - [example of fine tuning is Instruction Fine tuning](https://www.kaggle.com/code/abdelrahmanm2003/napoleon-bonapart)
@@ -193,4 +209,100 @@ The decoder is similar to the encoder but with some differences:
          - generate code 
          - run it 
          - save note and reults and graphs as note 
-           
+   
+   - # but what if we not have the resources to run or fine tune full llm model as it is ?
+      - We Want To apply Quantization on Model but What is Quantization?
+         - Any LLm model or Ai model could mesure it by Flops[numper of floating points operation that could be process in one second ]
+         like assume we have simple nn with input 12 features and one hidden layer has 5 neurons so the number of weights is 5*12 is 60 and each weights used in addition and mutiblication so the Flops of model will be 2*[60] = 120 Flops assume that this operations .
+         thats simple way that could imagine what is Flops .
+
+         - but as we know that the operations complexity afectedd by number of bits  so if the tensor of weights of model represented in torch.float32 (32 bit ) need more cpu power than int8 (8bits).
+
+         - So we could define Quantization : is converting high precision floating point values (e.g., 32-bit or 64-bit) into a lower precision format (e.g., 16-bit, 8-bit, or even binary)       
+
+         - # Steps of Quantization
+              * calculate the exponent and mantissa for each weight (IEEE 754 sign   exponent   mantissa)
+              * check the max value of Exponent of float32 and int8
+              * calculate the scale factor by dividing the max value of float 32 and int8 Scale = [ max_value_of_float32_weights / max_value_of_int8 ]
+              * int8 value =  float32 /scaler => new value that is quantized weight  now we converted weights from 32 bits to 8 bits that make Model more light .(Flops will be decreased )
+              * Flops is number of operations that could be applied in one second.  
+# How to Finetune pretrained LLm Model 
+ We have 3 types of finetunning 
+   - Adaptive [old-fixed-weights] + [new fine tunned weights]
+   - Reparametrization (we use performance efficent finetunning with Reparametrization technique like Lora and Q-Lora)
+      - in simple adaptive peft fine tunning we used to make trained weights with same shape of fixed weights matrix then add trained weights into fixed weights.
+         - cons 
+            - is Memory cosuming .
+         we want [apply Low Rank adaptive technique ] By rank the trained weights matrix into 2 low rank dimention matrix like 
+            - It sounds like you're describing Low-Rank Adaptation (LoRA) or a similar technique for reparameterizing a matrix WW by decomposing it into two smaller matrices AA and BB, where A×B=WA×B=W. The goal is to reparameterize the original matrix WW in such a way that the matrices AA and BB have some relationship, possibly to reduce the number of trainable parameters or to enforce some structure for efficiency.
+
+      Here's a detailed explanation of how this might work and how you can enforce a relationship between AA and BB:
+      1. Matrix Decomposition (LoRA-style Reparameterization):
+
+      The original weight matrix WW in a neural network layer is decomposed into two smaller matrices AA and BB such that:
+      W≈A×B
+      W≈A×B
+      The matrices AA and BB are much smaller than WW, which allows for fewer parameters to be trained, resulting in low-rank adaptation.
+
+      2. Introducing a Relationship Between AA and BB:
+      To impose a relationship between AA and BB, there are a few common techniques and ideas that you could explore:
+      
+      a. Shared Parameters:
+    One simple way to enforce a relationship is to share parameters between AA and BB. For instance, you could share some or all of the parameters between the two matrices.
+    A=BT
+    A=BT This means that the two matrices are transposes of each other. In this case, you reduce the number of parameters even more because you only need to store half the parameters, with the relationship between AA and BB being symmetric.
+
+      b. Factorization Constraints:
+
+    Another way to enforce a relationship is to add factorization constraints. For example:
+        You could require that AA and BB have similar norms or specific sparsity patterns.
+        You could restrict AA and BB to be rank-constrained, which means that the rank of the matrices is explicitly controlled.
+        Orthogonality constraint: You can enforce that AA and BB are orthogonal, i.e., ATA=IATA=I and BTB=IBTB=I. This could help in specific applications where orthogonal transformations are desired.
+
+      c. Regularization with a Common Latent Space:
+
+    You can also create a latent space between AA and BB. This could mean that each column of AA and BB are connected through a common shared set of latent variables, ensuring that the representations in AA and BB are correlated in some way.
+        One approach could involve correlation regularization, where a penalty is added to the optimization objective to encourage AA and BB to have high correlation between corresponding columns.
+
+      d. Coupled Updates:
+
+    Another approach could involve coupled updates during training. This means that when the parameters of AA are updated, BB is also updated in a way that maintains a certain relationship. This can be done using a joint optimization strategy.
+
+   3. Mathematical Formalization of Relationships:
+
+   Let’s say you want to impose a specific relationship between AA and BB. Here are a few potential formulations:
+
+    Shared Weights:
+    A=BT⇒W=A×AT
+    A=BT⇒W=A×AT
+
+    This means that WW is approximated as a low-rank factorization, and the two matrices AA and BB are transposes of each other.
+
+    Norm Constraints:
+    ∥A∥2=∥B∥2
+    ∥A∥2​=∥B∥2​
+
+    In this case, you would apply a norm constraint that ensures that both AA and BB have equal magnitudes, which helps to ensure balance between the two matrices.
+
+    Orthogonality:
+    ATA=IandBTB=I
+    ATA=IandBTB=I
+
+    Here, both matrices AA and BB are constrained to be orthogonal, enforcing certain structure in the factorization.
+
+    Coupled Regularization:
+    Loss=∥W−A×B∥F2+λ⋅regularization(A,B)
+    Loss=∥W−A×B∥F2​+λ⋅regularization(A,B)
+
+    The regularization term could penalize the difference between AA and BB to encourage a specific relationship.
+
+   4. LoRA and Q-LoRA Adaptation:
+
+    LoRA: In LoRA, we typically use low-rank matrices to approximate the updates to a large weight matrix WW by learning the matrices AA and BB, which are much smaller than WW. The relationship between AA and BB can be controlled in LoRA through methods like tying parameters or applying regularization techniques to enforce desired properties between the two matrices.
+    Q-LoRA: If you are using Q-LoRA, quantization is applied to the weights. After decomposing the matrix WW, you quantize AA and/or BB to a lower bit-width. The relationship between AA and BB might also be influenced by how quantization is applied to these smaller matrices.
+
+   5. Example: Suppose you want to reparameterize WW as W=A×BW=A×B where AA and BB share certain characteristics, such as being orthogonal:
+
+    During training, you would learn AA and BB, and apply a constraint or regularization term such as ATA=IATA=I and BTB=IBTB=I to keep both matrices orthogonal.
+    This could help maintain a structure that is more interpretable and efficient for use in downstream tasks. 
+   - Soft prompt fine tuning [we adding examples of responces lable and add them into embedding input of model]

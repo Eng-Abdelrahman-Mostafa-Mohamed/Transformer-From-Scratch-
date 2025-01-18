@@ -3,21 +3,19 @@ from tokenizers import Tokenizer, models, pre_tokenizers, trainers
 from pathlib import Path
 import torch
 from torch.utils.data import Dataset, DataLoader
-# from textblob import TextBlob as tb
+from textblob import TextBlob as tb
 from Transformer import build_transformer
 from torch.utils.data import Dataset, DataLoader 
 from datasets import load_dataset
-# import arabic_reshaper
-# from tqdm import tqdm
+import arabic_reshaper
+from tqdm import tqdm
 from Transformer import load_model , train_transformer , get_Transformer
 
-# the main problem of training the transformer is cuda out of memory error so we mostly Fine tune the model on the hugging face
-
-torch.cuda.set_device(0)
-print('-----------------------------------------------------------------')
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(device) 
-print(torch.cuda.current_device()) 
+# torch.cuda.set_device(0)
+# print('-----------------------------------------------------------------')
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# print(device) 
+print(torch.device('cpu')) 
 print('-----------------------------------------------------------------')
 config = {
     'tokenizer_path': '.',
@@ -37,9 +35,7 @@ config = {
 def get_all_sents(ds, lang):
     for itm in ds:
         yield itm['translation'][lang]
-        
-        
-    
+
 def build_tokenizer(config, data, lang):
     tokenizer_path = Path(config['tokenizer_path']) / f"tokenizer_{lang}.json"
     if not Path.exists(tokenizer_path):
@@ -88,24 +84,21 @@ class CreateTrainingDataForTransformer(Dataset):
         self.tgt_tokenizer = tokenizer_tgt
         self.src_language = src_language
         self.target_language = target_language
-        self.sos_token = torch.tensor([self.src_tokenizer.token_to_id("[<start>]")], dtype=torch.int64).to(device)
-        self.eos_token = torch.tensor([self.src_tokenizer.token_to_id("[<end>]")], dtype=torch.int64).to(device)
-        self.pad_token = torch.tensor([self.src_tokenizer.token_to_id("[<pad>]")]).to(device)
-       
+        self.sos_token = torch.tensor([self.src_tokenizer.token_to_id("[<start>]")], dtype=torch.int64)
+        self.eos_token = torch.tensor([self.src_tokenizer.token_to_id("[<end>]")], dtype=torch.int64)
+        self.pad_token = torch.tensor([self.src_tokenizer.token_to_id("[<pad>]")])
         self.src_tokenizer = build_tokenizer(config, data, config['src_lang'])
         self.tgt_tokenizer = build_tokenizer(config, data, config['tgt_lang'])
 
     def __len__(self):
         return len(self.data)
 
-
-# encoder input should be [sos] + src_tokens_input_enc + [eos] + [pad] * num_padding_needed
     def __getitem__(self, idx):
         src_txt_of_idx = self.data[idx]['translation'][self.src_language]
         tgt_txt_of_idx = self.data[idx]['translation'][self.target_language]
         
-        src_tokens_input_enc = torch.tensor((self.src_tokenizer.encode(src_txt_of_idx).ids),dtype=torch.int64).to(device)
-        tgt_tokens_input_dec = torch.tensor((self.tgt_tokenizer.encode(tgt_txt_of_idx).ids),dtype=torch.int64).to(device)
+        src_tokens_input_enc = torch.tensor((self.src_tokenizer.encode(src_txt_of_idx).ids),dtype=torch.int64)
+        tgt_tokens_input_dec = torch.tensor((self.tgt_tokenizer.encode(tgt_txt_of_idx).ids),dtype=torch.int64)
         
         src_to_enc_num_padding_needed = (self.seq_len - len(src_tokens_input_enc) - 2)
         tgt_dec_num_padding_needed = (self.seq_len - len(tgt_tokens_input_dec) - 1)
@@ -113,35 +106,34 @@ class CreateTrainingDataForTransformer(Dataset):
         if src_to_enc_num_padding_needed < 0 or tgt_dec_num_padding_needed < 0:
             raise ValueError("The sentence input is too long")
         
-        
         # Hint : the encoder input should be [sos] + src_tokens_input_enc + [eos] + [pad] * num_padding_needed 
         # Hint : the decoder input should be [sos] + tgt_tokens_input_dec + [pad] * num_padding_needed why we dont add [eos] token here? 
         # Hint : the lable should be tgt_tokens_input_dec + [eos] + [pad] * num_padding_needed
         # the reson is   Shifting the target sequence by one position to the right, the decoder input should be [sos] + tgt_tokens_input_dec + [pad] * num_padding_needed
         
         # my name is abdelrahman
-        # [sos] my name is abdelrahman [eos]  n_bedded_padding_times* [](encoder input )
+        # [sos] my name is abdelrahman [eos]
         # Target --> [sos] ich bin abdelrahman shifted by one position to the right decoder could see the current and previous token only and predect next token 
         # lable --> ich bin abdelrahman [eos]   # the lable should be the target shifted by one position to the right
         
         encoder_input = torch.cat([
             self.sos_token,
-            torch.tensor(src_tokens_input_enc, dtype=torch.int64).to(device),
+            torch.tensor(src_tokens_input_enc, dtype=torch.int64),
             self.eos_token,
-            torch.tensor([self.pad_token] * src_to_enc_num_padding_needed, dtype=torch.int64).to(device)
-        ],dim=0).to(device)
+            torch.tensor([self.pad_token] * src_to_enc_num_padding_needed, dtype=torch.int64)
+        ],dim=0)
         
         decoder_input = torch.cat([
             self.sos_token,
-            torch.tensor(tgt_tokens_input_dec, dtype=torch.int64).to(device),
-            torch.tensor([self.pad_token] * tgt_dec_num_padding_needed, dtype=torch.int64).to(device)
-        ],dim=0).to(device)
+            torch.tensor(tgt_tokens_input_dec, dtype=torch.int64),
+            torch.tensor([self.pad_token] * tgt_dec_num_padding_needed, dtype=torch.int64)
+        ],dim=0)
         
         lable = torch.cat([
-            torch.tensor(tgt_tokens_input_dec, dtype=torch.int64).to(device),
+            torch.tensor(tgt_tokens_input_dec, dtype=torch.int64),
             self.eos_token,
-            torch.tensor([self.pad_token] * tgt_dec_num_padding_needed, dtype=torch.int64).to(device)
-        ],dim=0).to(device)
+            torch.tensor([self.pad_token] * tgt_dec_num_padding_needed, dtype=torch.int64),
+        ],dim=0)
         
         assert encoder_input.size(0) == self.seq_len
         assert decoder_input.size(0) == self.seq_len # chack that its padded
@@ -151,8 +143,8 @@ class CreateTrainingDataForTransformer(Dataset):
             'encoder_input': encoder_input,
             'decoder_input': decoder_input,
             'lable': lable,
-            'encoder_mask': ((encoder_input != self.pad_token).unsqueeze(0).unsqueeze(0).int()).to(device),
-            'decoder_mask': ((decoder_input != self.pad_token).type(torch.int64).unsqueeze(0).unsqueeze(0).int() & causal_mask(decoder_input.size(0)).to(device)),
+            'encoder_mask': ((encoder_input != self.pad_token).unsqueeze(0).unsqueeze(0).int()),
+            'decoder_mask': ((decoder_input != self.pad_token).type(torch.int64).unsqueeze(0).unsqueeze(0).int() & causal_mask(decoder_input.size(0))),
             'src_txt': src_txt_of_idx,
             'tgt_txt': tgt_txt_of_idx
         }
@@ -182,10 +174,11 @@ def translate_sentence(model, sentence, src_tokenizer, tgt_tokenizer, max_seq_le
     tokens = src_tokenizer.encode(sentence).ids
     tokens = [src_tokenizer.token_to_id("[<start>]")] + tokens + [src_tokenizer.token_to_id("[<end>]")]
     tokens += [src_tokenizer.token_to_id("[<pad>]")] * (max_seq_len - len(tokens))
-    tokens = torch.tensor(tokens).unsqueeze(0).to(device)
+    tokens = torch.tensor(tokens).unsqueeze(0)
+    
     
     # Create the input mask
-    src_mask = (tokens != src_tokenizer.token_to_id("[<pad>]")).unsqueeze(1).unsqueeze(2).int().to(device)
+    src_mask = (tokens != src_tokenizer.token_to_id("[<pad>]")).unsqueeze(1).unsqueeze(2).int()
     
     
     # Generate predictions
@@ -201,6 +194,8 @@ if __name__ == '__main__':
     
     train_data_loader, val_data_loader, src_tokenizer, tgt_tokenizer, test_data = get_dataset_from_hugging_face(config)
     epochs = 10
+    
+    # the main problem of training the transformer is cuda out of memory error so we mostly Fine tune the model on the hugging face
     model = train_transformer(config, train_data_loader, val_data_loader, len(src_tokenizer.get_vocab()), len(tgt_tokenizer.get_vocab()), epochs,config['lr'])
     
     model = load_model(config, len(src_tokenizer.get_vocab()), len(tgt_tokenizer.get_vocab()), config['model_path'])
@@ -209,26 +204,3 @@ if __name__ == '__main__':
     sentence = "أهلاً بك في عالم الذكاء الاصطناعي"
     translated_sentence = translate_sentence(model, sentence, src_tokenizer, tgt_tokenizer, config['seq_len'])
     print(translated_sentence)
-    
-    
-    
-    # instructurne fine tuning the model on the hugging face
-    # peft fine tuning Flops and parameters
-    
-    
-    # Quantization  64 bits  -->8=32 bits --> 4 bits --> 2 bits --> 1 bit
-    # Pruning  --> 0.1%  --> 1% --> 10% --> 50% --> 90% 
-    # distillation is the process of training a small model to mimic the behavior of a larger model
-    
-    #----------------------------
-    #---------------------------
-    #--------------------------aymenis playing football,
-
-   # the boy is playing football And the boy eating healthy food 
-   
-# Rag  like retriving using cos similarity  + LLMS + BERT + GPT-3 + T5 + BART + GPT-2 + GPT-3
-
-# LLMS -> Genrate code for data analysis "like what is the top counties in population in the world using local csv data thats called worled_population2023 then run code in terminal then save code and results as note "
-
-
-# Rag Agent   <==> LLMs+ code runner+ Note saver 
