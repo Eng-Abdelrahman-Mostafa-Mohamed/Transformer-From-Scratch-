@@ -243,58 +243,28 @@ The decoder is similar to the encoder but with some differences:
       W≈A×B
       W≈A×B
       The matrices AA and BB are much smaller than WW, which allows for fewer parameters to be trained, resulting in low-rank adaptation.
+      then now we have number of parameters = A+b 
 
-      2. Introducing a Relationship Between AA and BB:
-      To impose a relationship between AA and BB, there are a few common techniques and ideas that you could explore:
-      
-      a. Shared Parameters:
-    One simple way to enforce a relationship is to share parameters between AA and BB. For instance, you could share some or all of the parameters between the two matrices.
-    A=BT
-    A=BT This means that the two matrices are transposes of each other. In this case, you reduce the number of parameters even more because you only need to store half the parameters, with the relationship between AA and BB being symmetric.
+**Applying LoRA in Transformer's Multihead Attention**
 
-      b. Factorization Constraints:
+* **Scenario:** We have a weight matrix in the multihead attention module of a Transformer. 
+    * This matrix converts the input shape from `seq_length * d_model` to `seq_length * dk`.
+    * `d_model = 512`, `h = 8`, `dk = d_model // h = 512 // 8 = 64`
+    * Original weight matrix dimensions: `d_model * dk = 512 * 64 = 32768` parameters
 
-    Another way to enforce a relationship is to add factorization constraints. For example:
-        You could require that AA and BB have similar norms or specific sparsity patterns.
-        You could restrict AA and BB to be rank-constrained, which means that the rank of the matrices is explicitly controlled.
-        Orthogonality constraint: You can enforce that AA and BB are orthogonal, i.e., ATA=IATA=I and BTB=IBTB=I. This could help in specific applications where orthogonal transformations are desired.
+* **LoRA Implementation:**
+    * We introduce two low-rank matrices, `A` and `B`, with `rank = 6`.
+        * `A` dimensions: `rank * dk = 6 * 64 = 384` parameters
+        * `B` dimensions: `d_model * rank = 512 * 6 = 3072` parameters
+    * Total LoRA parameters: `A + B = 384 + 3072 = 3456` parameters
 
-      c. Regularization with a Common Latent Space:
+* **Parameter Reduction:**
+    * Difference in parameters: `Original parameters - LoRA parameters = 32768 - 3456 = 29312`
+    * Percentage decrease: `(Difference / Original parameters) * 100 = (29312 / 32768) * 100 ≈ 89.45%`
 
-    You can also create a latent space between AA and BB. This could mean that each column of AA and BB are connected through a common shared set of latent variables, ensuring that the representations in AA and BB are correlated in some way.
-        One approach could involve correlation regularization, where a penalty is added to the optimization objective to encourage AA and BB to have high correlation between corresponding columns.
+**Conclusion:**
 
-      d. Coupled Updates:
-
-    Another approach could involve coupled updates during training. This means that when the parameters of AA are updated, BB is also updated in a way that maintains a certain relationship. This can be done using a joint optimization strategy.
-
-   3. Mathematical Formalization of Relationships:
-
-   Let’s say you want to impose a specific relationship between AA and BB. Here are a few potential formulations:
-
-    Shared Weights:
-    A=BT⇒W=A×AT
-    A=BT⇒W=A×AT
-
-    This means that WW is approximated as a low-rank factorization, and the two matrices AA and BB are transposes of each other.
-
-    Norm Constraints:
-    ∥A∥2=∥B∥2
-    ∥A∥2​=∥B∥2​
-
-    In this case, you would apply a norm constraint that ensures that both AA and BB have equal magnitudes, which helps to ensure balance between the two matrices.
-
-    Orthogonality:
-    ATA=IandBTB=I
-    ATA=IandBTB=I
-
-    Here, both matrices AA and BB are constrained to be orthogonal, enforcing certain structure in the factorization.
-
-    Coupled Regularization:
-    Loss=∥W−A×B∥F2+λ⋅regularization(A,B)
-    Loss=∥W−A×B∥F2​+λ⋅regularization(A,B)
-
-    The regularization term could penalize the difference between AA and BB to encourage a specific relationship.
+LoRA significantly reduces the number of trainable parameters in the multihead attention module, leading to a substantial decrease in computational cost and memory usage during fine-tuning. In this example, LoRA reduces the number of parameters by approximately 89.45%.
 
    4. LoRA and Q-LoRA Adaptation:
 
