@@ -202,7 +202,7 @@ The decoder is similar to the encoder but with some differences:
  # How to use Pre trained LLm models .
    - Retrain it from Scratch (use it as arciticture only)
    - Apply Transfer Learning (Fine tuning)
-      - [example of fine tuning is Instruction Fine tuning](https://www.kaggle.com/code/abdelrahmanm2003/napoleon-bonapart)
+      - [example of fine tuning is Instruction Fine tuning](https://www.kaggle.com/code/mh0386/phi-2-fine-tuning-as-napoleon-bonaparte)
    - or used pretrained mode without training with retriver to retrive data from document using similarity 
       ![alt text](image-7.png) 
    - or intgrate Rag with other llms or tools [Agentic AI](https://github.com/Eng-Abdelrahman-Mostafa-Mohamed/Agents) Inthis project i make Agentic AI for data analysis give it task that you want like visualize som data and it will 
