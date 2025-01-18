@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim 
 import math
-from torch.optim import Adam
+
 torch.cuda.set_device(0)
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class InputEmbedding(nn.Module):
@@ -334,11 +334,90 @@ def load_model(config, src_vocab_size, tgt_vocab_size, model_path):
     return model
 
 
+# def train_transformer(config, train_data, val_data, src_vocab_size, tgt_vocab_size, epochs,lr):
+    
+#     transformer = get_Transformer(config, src_vocab_size, tgt_vocab_size)
+#     transformer = transformer.to(device)
+    
+#     #load model
+#     #set model in training mode 
+#     # predict 
+#     #check loss
+#     # zeroing the gradients (from memory)
+#     # backpropagation to get dw and db 
+#     #optimizer. step to update parameters using dw and db (i used adam optimizer)
+    
+#     criterion = nn.CrossEntropyLoss()
+#     optimizer = optim.Adam(transformer.parameters(), lr=lr)
+    
+#     # Training loop
+#     for epoch in range(epochs):
+#         transformer.train()
+#         running_loss = 0.0
+        
+#         # Loop through training data (train_data is expected to be iterable in batches)
+#         for batch_idx, (src, tgt) in enumerate(train_data):
+#             src = src.to(device)
+#             tgt = tgt.to(device)
+
+#             # Create masks
+#             src_mask = (src != 0).unsqueeze(-2)  # Assuming padding token is 0
+#             tgt_mask = (tgt != 0).unsqueeze(-2)
+
+#             optimizer.zero_grad()
+            
+#             # Forward pass
+#             encoder_output = transformer.encode(src, src_mask)
+#             decoder_output = transformer.decode(encoder_output, src_mask, tgt, tgt_mask)
+
+#             # Compute loss
+#             output = transformer.project(decoder_output)
+#             output_dim = output.size(-1)
+#             loss = criterion(output.view(-1, output_dim), tgt.view(-1))
+
+#             # Backward pass
+#             loss.backward()
+#             optimizer.step()
+
+#             running_loss += loss.item()
+
+#         avg_train_loss = running_loss / len(train_data)
+#         print(f"Epoch {epoch + 1}/{epochs}, Training Loss: {avg_train_loss:.4f}")
+        
+#         # Validation loop
+#         if val_data:
+#             transformer.eval()
+#             val_loss = 0.0
+#             with torch.no_grad():
+#                 for batch_idx, (src, tgt) in enumerate(val_data):
+#                     src = src.to(device)
+#                     tgt = tgt.to(device)
+
+#                     # Create masks
+#                     src_mask = (src != 0).unsqueeze(-2) 
+#                     tgt_mask = (tgt != 0).unsqueeze(-2)
+
+#                     # Forward pass
+#                     encoder_output = transformer.encode(src, src_mask)
+#                     decoder_output = transformer.decode(encoder_output, src_mask, tgt, tgt_mask)
+
+#                     # Compute loss
+#                     output = transformer.project(decoder_output)
+#                     output_dim = output.size(-1)
+#                     loss = criterion(output.view(-1, output_dim), tgt.view(-1))
+                    
+#                     val_loss += loss.item()
+
+#             avg_val_loss = val_loss / len(val_data)
+#             print(f"Epoch {epoch + 1}/{epochs}, Validation Loss: {avg_val_loss:.4f}")
+    
+#     return transformer
 
 
 
-
-
+import torch
+from torch import nn
+from torch.optim import Adam
 
 def train_transformer(config, train_data, val_data, src_vocab_size, tgt_vocab_size, epochs, lr):
     """
