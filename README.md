@@ -1,5 +1,5 @@
 # NLP Journy 
-![NLP Journy](https://github.com/Eng-Abdelrahman-Mostafa-Mohamed/Transformer-From-Scratch-/blob/Eng-Abdelrahman-Mostafa-Mohamed/NLp_%20journy.png)
+![NLP Journy](NLp_%20journy.png)
 
 * 1960s: Bernard Widrow and Marcian Hoff developed models called ADALINE.
 * The modern deep learning era started in 2006.
