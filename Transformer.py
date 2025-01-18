@@ -415,10 +415,8 @@ def load_model(config, src_vocab_size, tgt_vocab_size, model_path):
 
 
 
-import torch
-from torch import nn
-from torch.optim import Adam
 
+# try on cpu 
 def train_transformer(config, train_data, val_data, src_vocab_size, tgt_vocab_size, epochs, lr):
     """
     Trains a Transformer model for machine translation.
@@ -431,11 +429,7 @@ def train_transformer(config, train_data, val_data, src_vocab_size, tgt_vocab_si
         tgt_vocab_size (int): Size of the target language vocabulary.
         epochs (int): Number of training epochs.
         lr (float): Learning rate for the Adam optimizer.
-
-    Returns:
-        torch.nn.Module: The trained Transformer model.
-    """
-
+"""
     # Check if GPU is available and use it if possible
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
