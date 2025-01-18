@@ -95,7 +95,7 @@ Therefore, we need models that can "remember" weights (the knowledge of the mode
 
 ### What is Attention?
 
-Attention is a technique that allows the model to understand how important each word is to the current context.
+Attention is a technique that allows the model to understand the Importance of each word to the current context.
 
 
 # Transformer
@@ -169,7 +169,7 @@ The encoder consists of several layers, each with the following components:
 The decoder is similar to the encoder but with some differences:
 
 1. **Masked Multi-Head Attention**
-   - Prevents attending to future tokens.
+   - Prevents attending to future tokens. ==> So Mostly used on decoder ()"generation_time")
    ```
    MaskedAttention(Q, K, V) = softmax(QK^T / sqrt(d_k) + mask) * V
    ```
@@ -187,7 +187,7 @@ The decoder is similar to the encoder but with some differences:
 
 #  ther is Question may 
 
-#### We take about The architecture But How It actually Trained for Various Tasks (Translation(encoder_decoder_model) , classification(encoder only model),text generation "Trends now adays  😅 "(decoder only models)-->That's type of transformer is the top  used in advanced llm techniques like Rag - Agentic AI by integrate  multible llms together or llms+tools like ote saver ot code runner & evaluator)
+#### We talked about The architecture But How It actually Trained for Various Tasks (Translation(encoder_decoder_model) , classification(encoder only model),text generation "Trends now adays  😅 "(decoder only models)-->That's type of transformer is the top  used in advanced llm techniques like Rag - Agentic AI by integrate  multible llms together or llms+tools like ote saver ot code runner & evaluator)
 
 
 # we see in code how transformer built from scratch for text translation
