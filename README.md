@@ -87,9 +87,7 @@ Therefore, we need models that can "remember" weights (the knowledge of the mode
 
 
 
-# seq * vocap size outed 
 
-[0001]cat [ 5  7  9   8]
 
 
 
